@@ -7,6 +7,8 @@ import {
   TEXTURE_PRESETS_BY_MATERIAL,
 } from "./label";
 import { labelGenerateInputSchema } from "./routers";
+import { generateLabelCode as generateProductionLabelCode } from "./utils/labelCode";
+import { generateSeed } from "./utils/generationSeed";
 
 const MINIMAL_LOGO_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -24,11 +26,15 @@ describe("label.generate input schema", () => {
 
   it("accepts structured config requests without legacy textureType", () => {
     const parsed = labelGenerateInputSchema.parse({
-      logoDataUrl: MINIMAL_LOGO_DATA_URL,
+      logoBase64: MINIMAL_LOGO_DATA_URL.replace(/^data:[^;]+;base64,/, ""),
       config: {
         material: "SATIN",
-        color: "CREAM",
+        color: "cream",
         size: "30x15",
+        weave: "SATIN_DIAGONAL_20",
+        density: 1.25,
+        threadAngle: 20,
+        glossLevel: 0.85,
       },
     });
 
@@ -36,15 +42,12 @@ describe("label.generate input schema", () => {
     expect(parsed.config?.material).toBe("SATIN");
   });
 
-  it("requires textureType or config.material", () => {
+  it("requires textureType or config", () => {
     expect(() =>
       labelGenerateInputSchema.parse({
         logoDataUrl: MINIMAL_LOGO_DATA_URL,
-        config: {
-          color: "BLACK",
-        },
       })
-    ).toThrow("textureType or config.material is required");
+    ).toThrow("textureType or config is required");
   });
 });
 
@@ -55,18 +58,51 @@ describe("generation domain compatibility", () => {
       textureType: "hd",
       config: {
         material: "SATIN",
-        color: "CREAM",
+        color: "cream",
+        size: "30x15",
+        weave: "SATIN_DIAGONAL_20",
+        density: 1.25,
+        threadAngle: 20,
+        glossLevel: 0.85,
       },
     });
 
     const labelConfig = buildLabelConfig({
-      ...parsed.config,
       material: parsed.config?.material ?? mapLegacyTextureType(parsed.textureType),
-      textureTypeLegacy: parsed.config?.material ? undefined : parsed.textureType,
+      color: parsed.config?.color,
+      size: parsed.config?.size,
+      weaveType: parsed.config?.weave,
+      gridDensity: parsed.config?.density,
+      threadAngle: parsed.config?.threadAngle,
+      textureTypeLegacy: parsed.config ? undefined : parsed.textureType,
     });
 
     expect(labelConfig.material).toBe("SATIN");
     expect(labelConfig.textureTypeLegacy).toBe("satin");
+  });
+
+  it("maps HD_COTTON generation config to the canonical cotton domain", () => {
+    const parsed = labelGenerateInputSchema.parse({
+      logoDataUrl: MINIMAL_LOGO_DATA_URL,
+      config: {
+        material: "HD_COTTON",
+        color: "black",
+        size: "50x20",
+        weave: "COTTON_STABLE",
+        density: 1.5,
+      },
+    });
+
+    const labelConfig = buildLabelConfig({
+      material: parsed.config?.material,
+      color: parsed.config?.color,
+      size: parsed.config?.size,
+      weaveType: parsed.config?.weave,
+      gridDensity: parsed.config?.density,
+    });
+
+    expect(labelConfig.material).toBe("COTTON");
+    expect(labelConfig.textureTypeLegacy).toBe("hdcoton");
   });
 
   it("normalizes color and size into canonical values", () => {
@@ -92,6 +128,36 @@ describe("generation domain compatibility", () => {
     expect(generateLabelCode("hd", "black", "50X20")).toBe("HD_BLACK_50x20");
     expect(generateLabelCode("SATIN", "CREAM", "30x15")).toBe("SATIN_CREAM_30x15");
   });
+
+  it("generates production label codes from GenerationConfig", () => {
+    expect(
+      generateProductionLabelCode({
+        material: "HD_COTTON",
+        color: "black",
+        size: "50x20",
+      })
+    ).toBe("HD_COTTON_BLACK_50x20");
+  });
+
+  it("generates deterministic seeds from GenerationConfig", () => {
+    const config = {
+      material: "SATIN" as const,
+      color: "cream",
+      size: "30x15",
+      weave: "SATIN_DIAGONAL_20",
+      density: 1.25,
+      threadAngle: 20,
+      glossLevel: 0.85,
+    };
+
+    expect(generateSeed(config)).toBe(generateSeed(config));
+    expect(
+      generateSeed({
+        ...config,
+        density: 1.5,
+      })
+    ).not.toBe(generateSeed(config));
+  });
 });
 
 describe("material prompt rules", () => {
@@ -110,6 +176,8 @@ describe("material prompt rules", () => {
     expect(prompt).toContain("must NOT turn dark");
     expect(prompt).toContain("Do not adopt dark garment background from the reference images.");
     expect(prompt).toContain("Do not lose the satin sheen");
+    expect(prompt).toContain("The label must appear slightly stiff and structured");
+    expect(prompt).toContain("The woven label has industrial-grade selvedge edges.");
   });
 
   it("keeps cotton, hd, and taffeta material-specific rules", () => {
@@ -132,5 +200,11 @@ describe("material prompt rules", () => {
     expect(cottonPrompt).toContain("not synthetic and not glossy");
     expect(taffetaPrompt).toContain("Classic visible woven grid");
     expect(taffetaPrompt).toContain("not overly glossy and not satin-like");
+    expect(hdPrompt).toContain("Label edge finish: Edges must be clean with realistic woven borders");
+    expect(cottonPrompt).toContain("Thread thickness: Threads must appear fine and uniform");
+    expect(taffetaPrompt).toContain("Weave density: The fabric must show a tight and regular weave pattern");
+    expect(hdPrompt).toContain("Edges are straight, sharp, and rectangular.");
+    expect(cottonPrompt).toContain("No fuzzy borders.");
+    expect(taffetaPrompt).toContain("The full rectangular label is clearly visible.");
   });
 });

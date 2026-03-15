@@ -46,6 +46,10 @@ export const generations = mysqlTable("generations", {
   labelKey: text("labelKey").notNull(),
   /** Type de texture sélectionné (Classic, Fancy, BIO, Vintage) */
   textureType: varchar("textureType", { length: 50 }).notNull(),
+  /** Code de production déterministe: MATERIAL_COLOR_SIZE */
+  labelCode: varchar("labelCode", { length: 128 }).notNull().default(""),
+  /** Seed déterministe pour stabiliser les générations IA */
+  seed: int("seed").notNull().default(0),
   /** Options supplémentaires en JSON */
   options: text("options"),
   /** Indique si c'était l'essai gratuit */

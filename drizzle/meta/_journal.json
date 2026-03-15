@@ -15,6 +15,20 @@
       "when": 1768232043872,
       "tag": "0001_remarkable_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1773459000000,
+      "tag": "0002_label_code_generation",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1773459600000,
+      "tag": "0003_generation_seed",
+      "breakpoints": true
     }
   ]
 }

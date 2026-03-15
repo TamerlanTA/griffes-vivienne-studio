@@ -21,6 +21,7 @@ import type {
 const MATERIAL_ALIASES: Record<string, LabelMaterial> = {
   HD: "HD",
   COTTON: "COTTON",
+  HD_COTTON: "COTTON",
   HDCOTON: "COTTON",
   SATIN: "SATIN",
   TAFFETA: "TAFFETA",

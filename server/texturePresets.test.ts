@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LABEL_MATERIALS, TEXTURE_PRESETS_BY_MATERIAL } from "./label";
-import { TEXTURE_PRESETS, TEXTURE_TYPES } from "./texturePresets";
+import { TEXTURE_PRESETS, TEXTURE_TYPES, texturePresets } from "./texturePresets";
 
 describe("texture presets", () => {
   it("defines exactly 4 canonical presets", () => {
@@ -32,10 +32,24 @@ describe("texture presets", () => {
     expect(satin.promptConstraints.join(" ")).toContain("Do not adopt dark garment background");
   });
 
-  it("keeps the legacy shim available for existing callers", () => {
+  it("defines a parameter-driven preset registry for legacy texture types", () => {
     expect(TEXTURE_TYPES).toHaveLength(4);
     expect(Object.keys(TEXTURE_PRESETS)).toHaveLength(4);
+    expect(texturePresets).toBe(TEXTURE_PRESETS);
+    expect(TEXTURE_PRESETS.hd.name).toBe("HD");
+    expect(TEXTURE_PRESETS.hdcoton.name).toBe("HD_COTTON");
+    expect(TEXTURE_PRESETS.satin.name).toBe("SATIN");
+    expect(TEXTURE_PRESETS.taffetas.name).toBe("TAFFETA");
     expect(TEXTURE_PRESETS.satin.references.length).toBeGreaterThan(0);
-    expect(TEXTURE_PRESETS.hdcoton.references.length).toBeGreaterThan(0);
+    expect(TEXTURE_PRESETS.hd.references.length).toBeGreaterThan(0);
+    expect(TEXTURE_PRESETS.hdcoton.references).toHaveLength(4);
+    expect(TEXTURE_PRESETS.taffetas.references).toHaveLength(4);
+    expect(TEXTURE_PRESETS.hd.parameters.threadThickness).toBe(0.4);
+    expect(TEXTURE_PRESETS.taffetas.parameters.weaveDensity).toBe(0.75);
+    expect(TEXTURE_PRESETS.satin.parameters.threadAngle).toBe(20);
+    expect(TEXTURE_PRESETS.satin.parameters.edgeFinish).toBe("clean");
+    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
+      "Apply controlled textile realism for woven label generation"
+    );
   });
 });

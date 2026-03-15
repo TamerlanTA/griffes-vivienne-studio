@@ -6,6 +6,8 @@
  * Integre les moodboards (images de reference) pour guider la generation
  */
 
+import { readFile } from "node:fs/promises";
+import { extname, resolve } from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import {
   buildGenerationPrompt,
@@ -15,14 +17,20 @@ import {
   type LabelConfig,
   type LabelConfigInput,
 } from "./label";
-import { MOODBOARDS } from "./moodboards";
-import { type TextureType } from "./texturePresets";
+import {
+  getTexturePreset,
+  type TexturePreset as ResolvedTexturePreset,
+  type TextureType,
+} from "./texturePresets";
+import { type GenerationConfig } from "./types/generationConfig";
+import { generateLabelCode } from "./utils/labelCode";
+import { generateSeed } from "./utils/generationSeed";
 
 export interface GenerateLabelInput {
   logoBase64: string;
   textureType?: TextureType;
   mode: "preview" | "final";
-  config?: LabelConfigInput;
+  config?: GenerationConfig | LabelConfigInput;
 }
 
 export interface GenerateLabelOutput {
@@ -30,6 +38,8 @@ export interface GenerateLabelOutput {
   imageBase64?: string;
   error?: string;
   labelConfig?: LabelConfig;
+  labelCode?: string;
+  seed?: number;
 }
 
 const MODEL_CONFIG = {
@@ -63,6 +73,12 @@ type GeminiResponseLike = {
 };
 
 const REAL_PHOTO_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const REAL_PHOTO_FILE_MIME_TYPES = new Map<string, GeminiInlineImage["mimeType"]>([
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".png", "image/png"],
+  [".webp", "image/webp"],
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -104,16 +120,118 @@ function extractGeneratedImage(response: GeminiResponseLike): string | undefined
 
 function resolveLabelConfig(input: GenerateLabelInput): LabelConfig {
   const mappedLegacyMaterial = mapLegacyTextureType(input.textureType);
+  const normalizedConfig = isGenerationConfig(input.config)
+    ? mapGenerationConfigToLabelConfigInput(input.config)
+    : input.config;
   const hasStructuredMaterial =
-    typeof input.config?.material === "string" && input.config.material.trim().length > 0;
+    typeof normalizedConfig?.material === "string" && normalizedConfig.material.trim().length > 0;
 
   return buildLabelConfig({
-    ...input.config,
-    material: input.config?.material ?? mappedLegacyMaterial,
+    ...normalizedConfig,
+    material: normalizedConfig?.material ?? mappedLegacyMaterial,
     textureTypeLegacy: hasStructuredMaterial
-      ? input.config?.textureTypeLegacy
-      : input.textureType ?? input.config?.textureTypeLegacy,
+      ? normalizedConfig?.textureTypeLegacy
+      : input.textureType ?? normalizedConfig?.textureTypeLegacy,
   });
+}
+
+function isGenerationConfig(
+  config: GenerateLabelInput["config"]
+): config is GenerationConfig {
+  return (
+    typeof config === "object" &&
+    config !== null &&
+    "material" in config &&
+    "density" in config &&
+    "weave" in config
+  );
+}
+
+function mapNumericGlossLevel(value: GenerationConfig["glossLevel"]): LabelConfigInput["glossLevel"] {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  if (value < 0.34) {
+    return "low";
+  }
+
+  if (value < 0.67) {
+    return "medium";
+  }
+
+  return "high";
+}
+
+function mapGenerationConfigToLabelConfigInput(
+  config: GenerationConfig
+): LabelConfigInput {
+  return {
+    material: config.material,
+    color: config.color,
+    size: config.size,
+    weaveType: config.weave,
+    gridDensity: config.density,
+    threadAngle: config.threadAngle,
+    glossLevel: mapNumericGlossLevel(config.glossLevel),
+  };
+}
+
+function mapLabelMaterialToGenerationMaterial(
+  material: LabelConfig["material"]
+): GenerationConfig["material"] {
+  switch (material) {
+    case "COTTON":
+      return "HD_COTTON";
+    case "HD":
+      return "HD";
+    case "SATIN":
+      return "SATIN";
+    case "TAFFETA":
+      return "TAFFETA";
+  }
+}
+
+function buildFallbackGenerationConfig(
+  config: LabelConfig
+): GenerationConfig {
+  const preset = getTexturePreset(config.textureTypeLegacy);
+
+  return {
+    material: mapLabelMaterialToGenerationMaterial(config.material),
+    color: config.color.toLowerCase(),
+    size: config.size,
+    weave: config.weaveType,
+    density: config.gridDensity,
+    threadAngle: config.threadAngle,
+    glossLevel: preset.parameters.glossLevel,
+  };
+}
+
+function resolveGenerationConfig(
+  input: GenerateLabelInput,
+  labelConfig: LabelConfig
+): GenerationConfig {
+  if (isGenerationConfig(input.config)) {
+    const fallbackConfig = buildFallbackGenerationConfig(labelConfig);
+
+    return {
+      ...fallbackConfig,
+      material: input.config.material,
+      color: input.config.color.trim(),
+      size: input.config.size.trim(),
+      weave: input.config.weave.trim(),
+      density: input.config.density,
+      ...(typeof input.config.threadAngle === "number"
+        ? { threadAngle: input.config.threadAngle }
+        : {}),
+      ...(typeof input.config.glossLevel === "number"
+        ? { glossLevel: input.config.glossLevel }
+        : {}),
+    };
+  }
+
+  return buildFallbackGenerationConfig(labelConfig);
 }
 
 export function extractInlineImage(dataUrl: string): GeminiInlineImage | null {
@@ -134,39 +252,136 @@ export function extractInlineImage(dataUrl: string): GeminiInlineImage | null {
   return { mimeType, data };
 }
 
+function getReferenceFileMimeType(ref: string): GeminiInlineImage["mimeType"] | null {
+  const extension = extname(ref.trim()).toLowerCase();
+  return REAL_PHOTO_FILE_MIME_TYPES.get(extension) ?? null;
+}
+
 export function isRealPhotoRef(ref: string): boolean {
   const image = extractInlineImage(ref);
-  return image !== null && REAL_PHOTO_MIME_TYPES.has(image.mimeType);
+  if (image) {
+    return REAL_PHOTO_MIME_TYPES.has(image.mimeType);
+  }
+
+  return getReferenceFileMimeType(ref) !== null;
+}
+
+async function loadReferenceImage(ref: string): Promise<GeminiInlineImage> {
+  const inlineImage = extractInlineImage(ref);
+  if (inlineImage) {
+    if (!REAL_PHOTO_MIME_TYPES.has(inlineImage.mimeType)) {
+      throw new Error(`Unsupported moodboard reference image MIME type: ${inlineImage.mimeType}`);
+    }
+
+    return inlineImage;
+  }
+
+  const mimeType = getReferenceFileMimeType(ref);
+  if (!mimeType) {
+    throw new Error(`Unsupported moodboard reference image path: ${ref}`);
+  }
+
+  const absolutePath = resolve(process.cwd(), ref);
+
+  try {
+    const buffer = await readFile(absolutePath);
+    return {
+      mimeType,
+      data: buffer.toString("base64"),
+    };
+  } catch (error: unknown) {
+    if (isRecord(error) && error.code === "ENOENT") {
+      throw new Error(`Missing moodboard reference image: ${ref}`);
+    }
+
+    throw new Error(`Unable to load moodboard reference image: ${ref}`);
+  }
+}
+
+async function loadReferenceImages(preset: ResolvedTexturePreset): Promise<GeminiInlineImage[]> {
+  const referenceImages = await Promise.all(preset.references.map(loadReferenceImage));
+  return referenceImages;
+}
+
+function buildTextureParameterPrompt(preset: ResolvedTexturePreset): string {
+  const { parameters } = preset;
+
+  return [
+    "TEXTURE PRESET:",
+    `- Preset name: ${preset.name}.`,
+    preset.promptTemplate,
+    "",
+    "TEXTILE PARAMETERS:",
+    `- Thread thickness: ${parameters.threadThickness}.`,
+    `- Weave density: ${parameters.weaveDensity}.`,
+    `- Fabric stiffness: ${parameters.fabricStiffness}.`,
+    `- Label edge finish: ${parameters.edgeFinish}. Industrial woven edges with clean rectangular selvedges.`,
+    `- Gloss level: ${parameters.glossLevel}.`,
+    ...(typeof parameters.threadAngle === "number"
+      ? [`- Thread angle: ${parameters.threadAngle}.`]
+      : []),
+  ].join("\n");
+}
+
+function buildGenerationConfigPrompt(config: GenerationConfig): string {
+  return [
+    "GENERATION CONFIG:",
+    `- Material: ${config.material}.`,
+    `- Color: ${config.color}.`,
+    `- Label size: ${config.size}.`,
+    `- Weave: ${config.weave}.`,
+    `- Weave density: ${config.density}.`,
+    ...(typeof config.threadAngle === "number"
+      ? [`- Thread angle: ${config.threadAngle}.`]
+      : []),
+    ...(typeof config.glossLevel === "number"
+      ? [`- Gloss level: ${config.glossLevel}.`]
+      : []),
+  ].join("\n");
+}
+
+function buildDeterminismPrompt(seed: number): string {
+  return [
+    "DETERMINISM:",
+    `- Generation seed: ${seed}.`,
+    "- Use this seed to maintain visual consistency.",
+  ].join("\n");
 }
 
 export function buildPrompt(
   config: LabelConfig,
-  options: { hasReferenceImages: boolean }
+  options: {
+    hasReferenceImages: boolean;
+    generationConfig?: GenerationConfig;
+    seed?: number;
+  }
 ): string {
-  const preset = TEXTURE_PRESETS_BY_MATERIAL[config.material];
-  return buildGenerationPrompt(config, preset, options);
+  const materialPreset = TEXTURE_PRESETS_BY_MATERIAL[config.material];
+  const texturePreset = getTexturePreset(config.textureTypeLegacy);
+  const generationConfig = options.generationConfig ?? buildFallbackGenerationConfig(config);
+  const seed = options.seed ?? generateSeed(generationConfig);
+
+  return [
+    buildGenerationPrompt(config, materialPreset, options),
+    "",
+    buildTextureParameterPrompt(texturePreset),
+    "",
+    buildGenerationConfigPrompt(generationConfig),
+    "",
+    buildDeterminismPrompt(seed),
+  ].join("\n");
 }
 
 export async function generateLabel(
   input: GenerateLabelInput
 ): Promise<GenerateLabelOutput> {
   const labelConfig = resolveLabelConfig(input);
-  const preset = TEXTURE_PRESETS_BY_MATERIAL[labelConfig.material];
+  const generationConfig = resolveGenerationConfig(input, labelConfig);
+  const labelCode = generateLabelCode(generationConfig);
+  const seed = generateSeed(generationConfig);
+  const materialPreset = TEXTURE_PRESETS_BY_MATERIAL[labelConfig.material];
+  const texturePreset = getTexturePreset(labelConfig.textureTypeLegacy);
   const modelId = input.mode === "preview" ? MODEL_CONFIG.preview : MODEL_CONFIG.final;
-  const referenceImages = MOODBOARDS[labelConfig.textureTypeLegacy]
-    .filter(isRealPhotoRef)
-    .map(extractInlineImage)
-    .filter((image): image is GeminiInlineImage => image !== null);
-
-  console.log("[NanoBanana] Generation start", {
-    mode: input.mode,
-    modelId,
-    textureType: labelConfig.textureTypeLegacy,
-    material: labelConfig.material,
-    presetTitle: preset.title,
-    labelCode: labelConfig.labelCode,
-    referenceCount: referenceImages.length,
-  });
 
   try {
     const apiKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
@@ -176,10 +391,33 @@ export async function generateLabel(
       );
     }
 
+    console.log(`[NanoBanana] Using preset: ${texturePreset.name}`);
+    console.log(`[NanoBanana] References: ${texturePreset.references.length}`);
+    console.log("[NanoBanana] Parameters:", texturePreset.parameters);
+    console.log("[NanoBanana] GenerationConfig", generationConfig);
+    console.log(`[NanoBanana] LabelCode: ${labelCode}`);
+    console.log(`[NanoBanana] Deterministic seed: ${seed}`);
+
+    const referenceImages = await loadReferenceImages(texturePreset);
+
+    console.log("[NanoBanana] Generation start", {
+      mode: input.mode,
+      modelId,
+      textureType: labelConfig.textureTypeLegacy,
+      material: labelConfig.material,
+      presetTitle: materialPreset.title,
+      presetName: texturePreset.name,
+      labelCode,
+      seed,
+      referenceCount: referenceImages.length,
+    });
+
     const ai = new GoogleGenAI({ apiKey });
 
     const promptText = buildPrompt(labelConfig, {
       hasReferenceImages: referenceImages.length > 0,
+      generationConfig,
+      seed,
     });
 
     const logoMimeType = "image/png";
@@ -223,7 +461,8 @@ export async function generateLabel(
         modelId,
         textureType: labelConfig.textureTypeLegacy,
         material: labelConfig.material,
-        labelCode: labelConfig.labelCode,
+        labelCode,
+        seed,
         imageBytes: imageBase64.length,
       });
 
@@ -231,6 +470,8 @@ export async function generateLabel(
         success: true,
         imageBase64,
         labelConfig,
+        labelCode,
+        seed,
       };
     }
 
@@ -244,7 +485,8 @@ export async function generateLabel(
       modelId,
       textureType: labelConfig.textureTypeLegacy,
       material: labelConfig.material,
-      labelCode: labelConfig.labelCode,
+      labelCode,
+      seed,
       errorMessage,
       errorStatus,
     });
@@ -256,6 +498,8 @@ export async function generateLabel(
     return {
       success: false,
       error: formattedErrorMessage,
+      labelCode,
+      seed,
     };
   }
 }
