@@ -348,6 +348,39 @@ function buildDeterminismPrompt(seed: number): string {
   ].join("\n");
 }
 
+function getMaterialQualityGuardrails(material: LabelConfig["material"]): readonly string[] {
+  switch (material) {
+    case "HD":
+      return [
+        "Maintain clean high-density weave with compact thread spacing and crisp edge definition.",
+      ];
+    case "COTTON":
+      return [
+        "Maintain soft natural cotton fibers, organic irregularity, matte finish, and slightly thicker yarns without slipping into a printed look.",
+      ];
+    case "SATIN":
+      return [
+        "Preserve controlled satin sheen while keeping the woven surface smooth, premium, and free from embroidered lift.",
+      ];
+    case "TAFFETA":
+      return [
+        "Keep the taffeta grain fine, tight, and small-scale with no oversized weave cells or coarse checker pattern.",
+      ];
+  }
+}
+
+function buildQualityGuardrailsPrompt(config: LabelConfig): string {
+  return [
+    "QUALITY GUARDRAILS:",
+    "- The logo must appear fully woven into the fabric structure, never printed, coated, embossed, or placed on top of the textile.",
+    "- Logo threads must be flat woven, flush with the textile surface, and integrated into the surrounding weave.",
+    "- No raised embroidery, no stitched border, no bulging outline, no puffed edge, and no halo around logo shapes.",
+    "- Keep the weave crisp, clean, and newly manufactured with stable density across the full label.",
+    "- No aging, no wear, no fading, no distress, no washed texture, and no damaged fibers.",
+    ...getMaterialQualityGuardrails(config.material).map((line) => `- ${line}`),
+  ].join("\n");
+}
+
 export function buildPrompt(
   config: LabelConfig,
   options: {
@@ -361,8 +394,13 @@ export function buildPrompt(
   const generationConfig = options.generationConfig ?? buildFallbackGenerationConfig(config);
   const seed = options.seed ?? generateSeed(generationConfig);
 
+  // Keep the prompt layered: shared label-domain instructions stay in the
+  // label module, while service-level guardrails let us tighten generation
+  // quality without changing the overall pipeline or reference loading flow.
   return [
     buildGenerationPrompt(config, materialPreset, options),
+    "",
+    buildQualityGuardrailsPrompt(config),
     "",
     buildTextureParameterPrompt(texturePreset),
     "",
@@ -398,6 +436,8 @@ export async function generateLabel(
     console.log(`[NanoBanana] LabelCode: ${labelCode}`);
     console.log(`[NanoBanana] Deterministic seed: ${seed}`);
 
+    // Reference moodboards are texture-only exemplars. They should steer weave
+    // behavior and material response, never the supplied logo geometry.
     const referenceImages = await loadReferenceImages(texturePreset);
 
     console.log("[NanoBanana] Generation start", {

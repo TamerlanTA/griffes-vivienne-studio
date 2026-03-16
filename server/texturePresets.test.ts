@@ -45,11 +45,14 @@ describe("texture presets", () => {
     expect(TEXTURE_PRESETS.hdcoton.references).toHaveLength(4);
     expect(TEXTURE_PRESETS.taffetas.references).toHaveLength(4);
     expect(TEXTURE_PRESETS.hd.parameters.threadThickness).toBe(0.4);
-    expect(TEXTURE_PRESETS.taffetas.parameters.weaveDensity).toBe(0.75);
+    expect(TEXTURE_PRESETS.hdcoton.parameters.threadThickness).toBe(0.5);
+    expect(TEXTURE_PRESETS.taffetas.parameters.weaveDensity).toBe(0.88);
     expect(TEXTURE_PRESETS.satin.parameters.threadAngle).toBe(20);
     expect(TEXTURE_PRESETS.satin.parameters.edgeFinish).toBe("clean");
     expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
       "Apply controlled textile realism for woven label generation"
     );
+    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain("soft natural cotton fibers");
+    expect(TEXTURE_PRESETS.taffetas.promptTemplate).toContain("fine, tight, and small-scale");
   });
 });

@@ -37,6 +37,7 @@ describe("nanoBananaService helpers", () => {
     expect(prompt).toContain("TASK:");
     expect(prompt).toContain("INPUTS:");
     expect(prompt).toContain("INSTRUCTIONS:");
+    expect(prompt).toContain("QUALITY GUARDRAILS:");
     expect(prompt).toContain("STRICT TEXTILE CONSTRAINTS:");
     expect(prompt).toContain("MATERIAL SPECIFICATION:");
     expect(prompt).toContain("WEAVE PARAMETERS:");
@@ -67,6 +68,9 @@ describe("nanoBananaService helpers", () => {
     expect(prompt).toContain("Industrial woven edges with clean rectangular selvedges.");
     expect(prompt).toContain("Gloss level: 0.85.");
     expect(prompt).toContain("Thread angle: 20.");
+    expect(prompt).toContain("flat woven, flush with the textile surface");
+    expect(prompt).toContain("No raised embroidery, no stitched border");
+    expect(prompt).toContain("newly manufactured");
     expect(prompt).toContain("Thread thickness: Threads must appear fine and uniform");
     expect(prompt).toContain("Fabric stiffness: The label must appear slightly stiff");
     expect(prompt).toContain("Label edge finish: Edges must be clean with realistic woven borders");

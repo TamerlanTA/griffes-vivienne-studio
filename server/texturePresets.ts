@@ -1,4 +1,4 @@
-import { MOODBOARDS } from "./moodboards";
+import { MOODBOARD_PROMPT_GUIDANCE, MOODBOARDS } from "./moodboards";
 import {
   LEGACY_TEXTURE_TYPES,
   mapLegacyTextureType,
@@ -40,9 +40,9 @@ const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]
     glossLevel: 0.2,
   },
   hdcoton: {
-    threadThickness: 0.45,
-    weaveDensity: 0.82,
-    fabricStiffness: 0.74,
+    threadThickness: 0.5,
+    weaveDensity: 0.8,
+    fabricStiffness: 0.7,
     edgeFinish: "woven",
     glossLevel: 0.15,
   },
@@ -55,8 +55,8 @@ const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]
     threadAngle: 20,
   },
   taffetas: {
-    threadThickness: 0.5,
-    weaveDensity: 0.75,
+    threadThickness: 0.42,
+    weaveDensity: 0.88,
     fabricStiffness: 0.85,
     edgeFinish: "woven",
     glossLevel: 0.35,
@@ -66,6 +66,7 @@ const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]
 const BASE_PROMPT_TEMPLATE = [
   "- Apply controlled textile realism for woven label generation.",
   "- Use the reference images only for textile texture, weave pattern, thread behavior, and lighting.",
+  "- Keep logo threads flat woven and integrated into the fabric structure with no embroidery-style lift or outline artifacts.",
   "- Keep the result manufacturing-aligned, stable, and free from ad-hoc artistic interpretation.",
 ].join("\n");
 
@@ -81,6 +82,7 @@ function createPromptTemplate(textureType: TextureType): string {
     BASE_PROMPT_TEMPLATE,
     `- Material target: ${preset.promptMaterialDescription}`,
     ...preset.referenceHandlingNotes.map((note) => `- ${note}`),
+    ...MOODBOARD_PROMPT_GUIDANCE[textureType].map((note) => `- ${note}`),
   ].join("\n");
 }
 

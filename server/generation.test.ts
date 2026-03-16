@@ -176,6 +176,7 @@ describe("material prompt rules", () => {
     expect(prompt).toContain("must NOT turn dark");
     expect(prompt).toContain("Do not adopt dark garment background from the reference images.");
     expect(prompt).toContain("Do not lose the satin sheen");
+    expect(prompt).toContain("No raised embroidery, no stitched border");
     expect(prompt).toContain("The label must appear slightly stiff and structured");
     expect(prompt).toContain("The woven label has industrial-grade selvedge edges.");
   });
@@ -195,11 +196,12 @@ describe("material prompt rules", () => {
     );
 
     expect(hdPrompt).toContain("Very tight weave");
-    expect(hdPrompt).toContain("high-definition woven finish");
-    expect(cottonPrompt).toContain("Matte cotton surface");
-    expect(cottonPrompt).toContain("not synthetic and not glossy");
-    expect(taffetaPrompt).toContain("Classic visible woven grid");
-    expect(taffetaPrompt).toContain("not overly glossy and not satin-like");
+    expect(hdPrompt).toContain("newly manufactured high-definition finish");
+    expect(hdPrompt).toContain("no fading, wear, or distressed fibers");
+    expect(cottonPrompt).toContain("soft natural cotton fibers");
+    expect(cottonPrompt).toContain("printed-cotton look");
+    expect(taffetaPrompt).toContain("Fine, tight woven grain");
+    expect(taffetaPrompt).toContain("not coarse, not oversized");
     expect(hdPrompt).toContain("Label edge finish: Edges must be clean with realistic woven borders");
     expect(cottonPrompt).toContain("Thread thickness: Threads must appear fine and uniform");
     expect(taffetaPrompt).toContain("Weave density: The fabric must show a tight and regular weave pattern");
