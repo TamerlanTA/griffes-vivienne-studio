@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+dist
+coverage
+tmp
+.DS_Store
+CODE_AUDIT_REPORT.md
+LIVRABLE_V2.0.md
+todo.md
