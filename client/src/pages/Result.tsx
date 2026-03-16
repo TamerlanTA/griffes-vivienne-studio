@@ -4,9 +4,37 @@ import { Sparkles, Download, ArrowLeft, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
+import { isPreviewMode } from "@/utils/isPreviewMode";
+import { mockGeneration } from "@/utils/mockGeneration";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import LanguageSelector from "@/components/LanguageSelector";
+
+const PREVIEW_MODE_MESSAGE =
+  "Preview mode: AI generation is disabled in this demo environment.";
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "Une erreur est survenue";
+}
+
+function isBackendUnavailableError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("fetch") ||
+    message.includes("network") ||
+    message.includes("unable to transform response") ||
+    message.includes("unexpected token") ||
+    message.includes("json") ||
+    message.includes("not found") ||
+    message.includes("404")
+  );
+}
 
 export default function Result() {
   const [, setLocation] = useLocation();
@@ -15,20 +43,9 @@ export default function Result() {
   const [selectedTexture, setSelectedTexture] = useState<string>("");
   const [generatedLabel, setGeneratedLabel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
 
-  const generateMutation = trpc.label.generate.useMutation({
-    onSuccess: (data) => {
-      setGeneratedLabel(data.labelUrl);
-      setIsLoading(false);
-      if (data.isFreeTrial) {
-        toast.success(t("result.title"));
-      }
-    },
-    onError: (error) => {
-      toast.error(error.message);
-      setIsLoading(false);
-    },
-  });
+  const generateMutation = trpc.label.generate.useMutation();
 
   useEffect(() => {
     const storedLogo = localStorage.getItem("logoPreview");
@@ -42,11 +59,64 @@ export default function Result() {
     setLogoPreview(storedLogo);
     setSelectedTexture(storedTexture);
 
-    // Lancer la génération
-    generateMutation.mutate({
-      logoDataUrl: storedLogo,
-      textureType: storedTexture as "hd" | "hdcoton" | "satin" | "taffetas",
-    });
+    let isCancelled = false;
+
+    const applyMockGeneration = () => {
+      if (isCancelled) return;
+
+      const previewResult = mockGeneration();
+
+      setGeneratedLabel(previewResult.labelUrl);
+      setGenerationMessage(PREVIEW_MODE_MESSAGE);
+      setIsLoading(false);
+      // Preview mode exists specifically for Vercel deployments where the
+      // frontend can be served without the long-running Express backend.
+      toast(PREVIEW_MODE_MESSAGE);
+    };
+
+    const runGeneration = async () => {
+      // Vercel preview deployments serve the static frontend, but the real AI
+      // generation path still depends on the Express/tRPC backend. Returning a
+      // mock keeps upload and texture-selection flows usable without changing
+      // the existing local architecture or Nano Banana pipeline.
+      if (isPreviewMode()) {
+        applyMockGeneration();
+        return;
+      }
+
+      try {
+        const data = await generateMutation.mutateAsync({
+          logoDataUrl: storedLogo,
+          textureType: storedTexture as "hd" | "hdcoton" | "satin" | "taffetas",
+        });
+
+        if (isCancelled) return;
+
+        setGeneratedLabel(data.labelUrl);
+        setGenerationMessage(null);
+        setIsLoading(false);
+
+        if (data.isFreeTrial) {
+          toast.success(t("result.title"));
+        }
+      } catch (error) {
+        if (isPreviewMode() || isBackendUnavailableError(error)) {
+          applyMockGeneration();
+          return;
+        }
+
+        if (isCancelled) return;
+
+        toast.error(getErrorMessage(error));
+        setIsLoading(false);
+      }
+    };
+
+    void runGeneration();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   const handleDownload = async () => {
@@ -118,6 +188,11 @@ export default function Result() {
                 <h2 className="text-4xl font-bold text-foreground mb-4">
                   Votre étiquette tissée
                 </h2>
+                {generationMessage ? (
+                  <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
+                    {generationMessage}
+                  </p>
+                ) : null}
               </div>
 
               {/* Result Display */}
