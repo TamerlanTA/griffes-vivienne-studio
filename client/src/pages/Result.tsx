@@ -74,6 +74,22 @@ export default function Result() {
       toast(PREVIEW_MODE_MESSAGE);
     };
 
+    async function safeGenerate(input: {
+      logoDataUrl: string;
+      textureType: "hd" | "hdcoton" | "satin" | "taffetas";
+    }) {
+      try {
+        return await generateMutation.mutateAsync(input);
+      } catch (error) {
+        if (isPreviewMode() || isBackendUnavailableError(error)) {
+          console.warn("Preview mode: backend unavailable", error);
+          return mockGeneration();
+        }
+
+        throw error;
+      }
+    }
+
     const runGeneration = async () => {
       // Vercel preview deployments serve the static frontend, but the real AI
       // generation path still depends on the Express/tRPC backend. Returning a
@@ -85,28 +101,27 @@ export default function Result() {
       }
 
       try {
-        const data = await generateMutation.mutateAsync({
+        const data = await safeGenerate({
           logoDataUrl: storedLogo,
           textureType: storedTexture as "hd" | "hdcoton" | "satin" | "taffetas",
         });
+        const usedPreviewFallback = data.labelUrl === mockGeneration().labelUrl;
 
         if (isCancelled) return;
 
         setGeneratedLabel(data.labelUrl);
-        setGenerationMessage(null);
+        setGenerationMessage(usedPreviewFallback ? PREVIEW_MODE_MESSAGE : null);
         setIsLoading(false);
 
-        if (data.isFreeTrial) {
+        if (data.isFreeTrial && !usedPreviewFallback) {
           toast.success(t("result.title"));
         }
       } catch (error) {
-        if (isPreviewMode() || isBackendUnavailableError(error)) {
-          applyMockGeneration();
-          return;
-        }
-
         if (isCancelled) return;
 
+        // Keep API failures inside the page instead of escalating to the root
+        // error boundary. This prevents demo deployments from hard-crashing.
+        setGenerationMessage(getErrorMessage(error));
         toast.error(getErrorMessage(error));
         setIsLoading(false);
       }

@@ -1,3 +1,4 @@
-export function isPreviewMode() {
-  return typeof window !== "undefined" && window.location.hostname.includes("vercel.app");
+export function isPreviewMode(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname.includes("vercel.app");
 }
