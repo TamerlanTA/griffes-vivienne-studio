@@ -4,7 +4,7 @@ import { Upload, Sparkles, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { navigateToLogin } from "@/const";
+import { getLoginUrl } from "@/const";
 import { useLanguage } from "@/contexts/LanguageContext";
 import LanguageSelector from "@/components/LanguageSelector";
 
@@ -93,7 +93,7 @@ export default function Home() {
                 {user.name || t("header.account")}
               </Button>
             ) : (
-              <Button variant="outline" size="sm" onClick={navigateToLogin}>
+              <Button variant="outline" size="sm" onClick={() => window.location.href = getLoginUrl()}>
                 {t("header.login")}
               </Button>
             )}

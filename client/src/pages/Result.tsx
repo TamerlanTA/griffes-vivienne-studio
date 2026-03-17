@@ -4,37 +4,9 @@ import { Sparkles, Download, ArrowLeft, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
-import { isPreviewMode } from "@/utils/isPreviewMode";
-import { mockGeneration } from "@/utils/mockGeneration";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import LanguageSelector from "@/components/LanguageSelector";
-
-const PREVIEW_MODE_MESSAGE =
-  "Preview mode: AI generation is disabled in this demo environment.";
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-
-  return "Une erreur est survenue";
-}
-
-function isBackendUnavailableError(error: unknown): boolean {
-  const message = getErrorMessage(error).toLowerCase();
-
-  return (
-    message.includes("failed to fetch") ||
-    message.includes("fetch") ||
-    message.includes("network") ||
-    message.includes("unable to transform response") ||
-    message.includes("unexpected token") ||
-    message.includes("json") ||
-    message.includes("not found") ||
-    message.includes("404")
-  );
-}
 
 export default function Result() {
   const [, setLocation] = useLocation();
@@ -43,9 +15,20 @@ export default function Result() {
   const [selectedTexture, setSelectedTexture] = useState<string>("");
   const [generatedLabel, setGeneratedLabel] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
 
-  const generateMutation = trpc.label.generate.useMutation();
+  const generateMutation = trpc.label.generate.useMutation({
+    onSuccess: (data) => {
+      setGeneratedLabel(data.labelUrl);
+      setIsLoading(false);
+      if (data.isFreeTrial) {
+        toast.success(t("result.title"));
+      }
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      setIsLoading(false);
+    },
+  });
 
   useEffect(() => {
     const storedLogo = localStorage.getItem("logoPreview");
@@ -59,61 +42,11 @@ export default function Result() {
     setLogoPreview(storedLogo);
     setSelectedTexture(storedTexture);
 
-    let isCancelled = false;
-
-    async function safeGenerate(input: {
-      logoDataUrl: string;
-      textureType: "hd" | "hdcoton" | "satin" | "taffetas";
-    }) {
-      try {
-        return await generateMutation.mutateAsync(input);
-      } catch (error) {
-        // Preview mode on Vercel should still attempt the real Express/tRPC
-        // generation path first. We only fall back to a mock when the API is
-        // actually unreachable, which keeps demo deploys safe without hiding
-        // a working backend from client testing.
-        if (isPreviewMode() && isBackendUnavailableError(error)) {
-          console.warn("Preview mode: backend unavailable", error);
-          return mockGeneration();
-        }
-
-        throw error;
-      }
-    }
-
-    const runGeneration = async () => {
-      try {
-        const data = await safeGenerate({
-          logoDataUrl: storedLogo,
-          textureType: storedTexture as "hd" | "hdcoton" | "satin" | "taffetas",
-        });
-        const usedPreviewFallback = data.labelUrl === mockGeneration().labelUrl;
-
-        if (isCancelled) return;
-
-        setGeneratedLabel(data.labelUrl);
-        setGenerationMessage(usedPreviewFallback ? PREVIEW_MODE_MESSAGE : null);
-        setIsLoading(false);
-
-        if (data.isFreeTrial && !usedPreviewFallback) {
-          toast.success(t("result.title"));
-        }
-      } catch (error) {
-        if (isCancelled) return;
-
-        // Keep API failures inside the page instead of escalating to the root
-        // error boundary. This prevents demo deployments from hard-crashing.
-        setGenerationMessage(getErrorMessage(error));
-        toast.error(getErrorMessage(error));
-        setIsLoading(false);
-      }
-    };
-
-    void runGeneration();
-
-    return () => {
-      isCancelled = true;
-    };
+    // Lancer la génération
+    generateMutation.mutate({
+      logoDataUrl: storedLogo,
+      textureType: storedTexture as "hd" | "hdcoton" | "satin" | "taffetas",
+    });
   }, []);
 
   const handleDownload = async () => {
@@ -185,11 +118,6 @@ export default function Result() {
                 <h2 className="text-4xl font-bold text-foreground mb-4">
                   Votre étiquette tissée
                 </h2>
-                {generationMessage ? (
-                  <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-                    {generationMessage}
-                  </p>
-                ) : null}
               </div>
 
               {/* Result Display */}
