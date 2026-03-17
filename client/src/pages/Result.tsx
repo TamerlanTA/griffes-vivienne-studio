@@ -61,19 +61,6 @@ export default function Result() {
 
     let isCancelled = false;
 
-    const applyMockGeneration = () => {
-      if (isCancelled) return;
-
-      const previewResult = mockGeneration();
-
-      setGeneratedLabel(previewResult.labelUrl);
-      setGenerationMessage(PREVIEW_MODE_MESSAGE);
-      setIsLoading(false);
-      // Preview mode exists specifically for Vercel deployments where the
-      // frontend can be served without the long-running Express backend.
-      toast(PREVIEW_MODE_MESSAGE);
-    };
-
     async function safeGenerate(input: {
       logoDataUrl: string;
       textureType: "hd" | "hdcoton" | "satin" | "taffetas";
@@ -81,7 +68,11 @@ export default function Result() {
       try {
         return await generateMutation.mutateAsync(input);
       } catch (error) {
-        if (isPreviewMode() || isBackendUnavailableError(error)) {
+        // Preview mode on Vercel should still attempt the real Express/tRPC
+        // generation path first. We only fall back to a mock when the API is
+        // actually unreachable, which keeps demo deploys safe without hiding
+        // a working backend from client testing.
+        if (isPreviewMode() && isBackendUnavailableError(error)) {
           console.warn("Preview mode: backend unavailable", error);
           return mockGeneration();
         }
@@ -91,15 +82,6 @@ export default function Result() {
     }
 
     const runGeneration = async () => {
-      // Vercel preview deployments serve the static frontend, but the real AI
-      // generation path still depends on the Express/tRPC backend. Returning a
-      // mock keeps upload and texture-selection flows usable without changing
-      // the existing local architecture or Nano Banana pipeline.
-      if (isPreviewMode()) {
-        applyMockGeneration();
-        return;
-      }
-
       try {
         const data = await safeGenerate({
           logoDataUrl: storedLogo,
