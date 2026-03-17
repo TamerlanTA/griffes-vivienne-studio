@@ -4,7 +4,7 @@ import { Sparkles, Check, CreditCard, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { getLoginUrl } from "@/const";
+import { navigateToLogin } from "@/const";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import LanguageSelector from "@/components/LanguageSelector";
@@ -66,7 +66,7 @@ export default function Credits() {
   const handlePurchase = (packId: string) => {
     if (!isAuthenticated) {
       toast.info(t("toast.loginRequired"));
-      window.location.href = getLoginUrl();
+      navigateToLogin();
       return;
     }
 
