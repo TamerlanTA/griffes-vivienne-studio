@@ -4,15 +4,11 @@
   "buildCommand": "pnpm build",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/index.ts": {
+    "api/**/*.ts": {
       "includeFiles": "server/moodboards/**"
     }
   },
   "routes": [
-    {
-      "src": "^/api/(.*)$",
-      "dest": "/api/index"
-    },
     {
       "handle": "filesystem"
     },
