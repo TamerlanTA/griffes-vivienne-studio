@@ -18,7 +18,7 @@ describe("Nano Banana Pro - Structure du service", () => {
       "taffetas",
     ];
     expect(textures).toHaveLength(4);
-    textures.forEach((t) => expect(typeof t).toBe("string"));
+    textures.forEach(t => expect(typeof t).toBe("string"));
   });
 
   it("les 2 modes preview/final sont valides", () => {
@@ -39,7 +39,7 @@ describe("Nano Banana Pro - Structure du service", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error).toContain("GOOGLE_AI_STUDIO_API_KEY");
-    expect(result.labelCode).toBe("HD_BLACK_50x20");
+    expect(result.labelCode).toBe("HD_BEIGE_50x20");
     expect(typeof result.seed).toBe("number");
 
     // Restaurer la clé

@@ -1,8 +1,30 @@
 export type LabelMaterial = "HD" | "COTTON" | "SATIN" | "TAFFETA";
 
-export type LabelColor = "BLACK" | "WHITE" | "CREAM" | "BEIGE" | "GOLD";
+export type LabelColor =
+  | "BLACK"
+  | "WHITE"
+  | "CREAM"
+  | "BEIGE"
+  | "GOLD"
+  | "OFF_WHITE"
+  | "LIGHT_BEIGE"
+  | "DARK_CHARCOAL";
 
-export type LabelSize = "20x10" | "30x15" | "50x20";
+export type LabelLogoColor = "BLACK" | "DARK_BLUE" | "WHITE";
+
+export type LabelLogoType =
+  | "AUTO"
+  | "SYMBOL_ONLY"
+  | "TEXT_ONLY"
+  | "SYMBOL_AND_TEXT";
+
+export type LabelSize =
+  | "20x10"
+  | "25x25"
+  | "30x15"
+  | "40x20"
+  | "50x20"
+  | "60x24";
 
 export type WeaveType =
   | "DAMASK_HD"
@@ -17,6 +39,9 @@ export type GlossLevel = "low" | "medium" | "high";
 export interface LabelConfigInput {
   material?: LabelMaterial | LegacyTextureType | string | null;
   color?: LabelColor | string | null;
+  backgroundColor?: LabelColor | string | null;
+  logoColor?: LabelLogoColor | string | null;
+  logoType?: LabelLogoType | string | null;
   size?: LabelSize | string | null;
   weaveType?: WeaveType | string | null;
   gridDensity?: number | null;
@@ -28,6 +53,9 @@ export interface LabelConfigInput {
 export interface LabelConfig {
   material: LabelMaterial;
   color: LabelColor;
+  backgroundColor: LabelColor;
+  logoColor: LabelLogoColor;
+  logoType: LabelLogoType;
   size: LabelSize;
   weaveType: WeaveType;
   gridDensity: number;

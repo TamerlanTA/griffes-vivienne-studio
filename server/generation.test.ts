@@ -6,7 +6,10 @@ import {
   mapLegacyTextureType,
   TEXTURE_PRESETS_BY_MATERIAL,
 } from "./label";
-import { labelGenerateInputSchema } from "./routers";
+import {
+  extractMimeTypeFromDataUrl,
+  labelGenerateInputSchema,
+} from "./routers";
 import { generateLabelCode as generateProductionLabelCode } from "./utils/labelCode";
 import { generateSeed } from "./utils/generationSeed";
 
@@ -42,6 +45,16 @@ describe("label.generate input schema", () => {
     expect(parsed.config?.material).toBe("SATIN");
   });
 
+  it("extracts raster mime types from uploaded logo data URLs", () => {
+    expect(extractMimeTypeFromDataUrl("data:image/jpeg;base64,aGVsbG8=")).toBe(
+      "image/jpeg"
+    );
+    expect(extractMimeTypeFromDataUrl("data:image/webp;base64,aGVsbG8=")).toBe(
+      "image/webp"
+    );
+    expect(extractMimeTypeFromDataUrl("invalid")).toBeNull();
+  });
+
   it("requires textureType or config", () => {
     expect(() =>
       labelGenerateInputSchema.parse({
@@ -68,7 +81,8 @@ describe("generation domain compatibility", () => {
     });
 
     const labelConfig = buildLabelConfig({
-      material: parsed.config?.material ?? mapLegacyTextureType(parsed.textureType),
+      material:
+        parsed.config?.material ?? mapLegacyTextureType(parsed.textureType),
       color: parsed.config?.color,
       size: parsed.config?.size,
       weaveType: parsed.config?.weave,
@@ -124,9 +138,27 @@ describe("generation domain compatibility", () => {
     expect(mapLegacyTextureType("taffetas")).toBe("TAFFETA");
   });
 
+  it("uses beige defaults for hd, cotton, and taffeta backgrounds", () => {
+    expect(buildLabelConfig({ material: "HD" }).backgroundColor).toBe("BEIGE");
+    expect(buildLabelConfig({ material: "HD" }).logoColor).toBe("BLACK");
+    expect(buildLabelConfig({ material: "COTTON" }).backgroundColor).toBe(
+      "BEIGE"
+    );
+    expect(buildLabelConfig({ material: "COTTON" }).logoColor).toBe("BLACK");
+    expect(buildLabelConfig({ material: "TAFFETA" }).backgroundColor).toBe(
+      "BEIGE"
+    );
+    expect(buildLabelConfig({ material: "TAFFETA" }).logoColor).toBe("BLACK");
+    expect(buildLabelConfig({ material: "SATIN" }).backgroundColor).toBe(
+      "CREAM"
+    );
+  });
+
   it("generates deterministic label codes", () => {
     expect(generateLabelCode("hd", "black", "50X20")).toBe("HD_BLACK_50x20");
-    expect(generateLabelCode("SATIN", "CREAM", "30x15")).toBe("SATIN_CREAM_30x15");
+    expect(generateLabelCode("SATIN", "CREAM", "30x15")).toBe(
+      "SATIN_CREAM_30x15"
+    );
   });
 
   it("generates production label codes from GenerationConfig", () => {
@@ -168,17 +200,27 @@ describe("material prompt rules", () => {
       size: "30x15",
     });
 
-    const prompt = buildGenerationPrompt(labelConfig, TEXTURE_PRESETS_BY_MATERIAL.SATIN, {
-      hasReferenceImages: true,
-    });
+    const prompt = buildGenerationPrompt(
+      labelConfig,
+      TEXTURE_PRESETS_BY_MATERIAL.SATIN,
+      {
+        hasReferenceImages: true,
+      }
+    );
 
     expect(prompt).toContain("light beige or cream (#F5F5DC)");
     expect(prompt).toContain("must NOT turn dark");
-    expect(prompt).toContain("Do not adopt dark garment background from the reference images.");
+    expect(prompt).toContain(
+      "Do not adopt dark garment background from reference images."
+    );
     expect(prompt).toContain("Do not lose the satin sheen");
     expect(prompt).toContain("No raised embroidery, no stitched border");
-    expect(prompt).toContain("The label must appear slightly stiff and structured");
-    expect(prompt).toContain("The woven label has industrial-grade selvedge edges.");
+    expect(prompt).toContain(
+      "The label must appear slightly stiff and structured"
+    );
+    expect(prompt).toContain(
+      "The woven label has industrial-grade selvedge edges."
+    );
   });
 
   it("keeps cotton, hd, and taffeta material-specific rules", () => {
@@ -198,15 +240,59 @@ describe("material prompt rules", () => {
     expect(hdPrompt).toContain("Very tight weave");
     expect(hdPrompt).toContain("newly manufactured high-definition finish");
     expect(hdPrompt).toContain("no fading, wear, or distressed fibers");
-    expect(cottonPrompt).toContain("soft natural cotton fibers");
+    expect(hdPrompt).toContain("Target label background color: BEIGE.");
+    expect(hdPrompt).toContain("Target logo thread color: BLACK.");
+    expect(hdPrompt).toContain("No thick edge, dark contour");
+    expect(cottonPrompt).toContain(
+      "premium woven cotton clothing label with high-density jacquard weave"
+    );
+    expect(cottonPrompt).toContain(
+      "The fabric has a fine tightly packed micro-weave structure with uniform thread spacing and industrial precision"
+    );
+    expect(cottonPrompt).toContain("industrial jacquard precision");
+    expect(cottonPrompt).toContain("Target label background color: BEIGE.");
+    expect(cottonPrompt).toContain("Target logo thread color: BLACK.");
+    expect(cottonPrompt).toContain(
+      "Do not add a thick outer edge, dark stroke, border ring, contour line, or halo around the logo."
+    );
+    expect(cottonPrompt).toContain("high-key studio lighting");
+    expect(cottonPrompt).toContain("No visible side stitching");
+    expect(cottonPrompt).toContain("NEGATIVE PROMPT:");
+    expect(cottonPrompt).toContain(
+      "Keep the label clearly wider than tall, like a luxury fashion woven label."
+    );
+    expect(cottonPrompt).toContain(
+      "Do not rotate the label vertically or present it as a portrait-oriented label."
+    );
     expect(cottonPrompt).toContain("printed-cotton look");
     expect(taffetaPrompt).toContain("Fine, tight woven grain");
-    expect(taffetaPrompt).toContain("not coarse, not oversized");
-    expect(hdPrompt).toContain("Label edge finish: Edges must be clean with realistic woven borders");
-    expect(cottonPrompt).toContain("Thread thickness: Threads must appear fine and uniform");
-    expect(taffetaPrompt).toContain("Weave density: The fabric must show a tight and regular weave pattern");
-    expect(hdPrompt).toContain("Edges are straight, sharp, and rectangular.");
+    expect(taffetaPrompt).toContain(
+      "fine industrial precision, small weave cells, and no oversized texture"
+    );
+    expect(hdPrompt).toContain(
+      "Label edge finish: Edges must be clean with realistic woven borders"
+    );
+    expect(cottonPrompt).toContain(
+      "Thread thickness: Threads should read as fine tightly packed cotton yarns with micro-scale definition"
+    );
+    expect(cottonPrompt).toContain(
+      "Weave density: The fabric must show a high-density fine cotton micro-weave"
+    );
+    expect(cottonPrompt).toContain("not dirty, not aged, and not brownish");
+    expect(cottonPrompt).toContain("micro-shadows");
+    expect(taffetaPrompt).toContain(
+      "Weave density: The fabric must show a tight and regular weave pattern"
+    );
+    expect(taffetaPrompt).toContain("Target label background color: BEIGE.");
+    expect(taffetaPrompt).toContain("Target logo thread color: BLACK.");
+    expect(taffetaPrompt).toContain("No thick edge, dark contour");
+    expect(taffetaPrompt).toContain("fine industrial precision");
+    expect(hdPrompt).toContain(
+      "Edges are straight, sharp, and professionally finished."
+    );
     expect(cottonPrompt).toContain("No fuzzy borders.");
-    expect(taffetaPrompt).toContain("The full rectangular label is clearly visible.");
+    expect(taffetaPrompt).toContain(
+      "The full rectangular or square label is clearly visible."
+    );
   });
 });

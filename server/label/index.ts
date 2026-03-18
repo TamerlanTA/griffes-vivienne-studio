@@ -5,3 +5,5 @@ export * from "./buildLabelConfig";
 export * from "./generateLabelCode";
 export * from "./buildGenerationPrompt";
 export * from "./mapLegacyTextureType";
+export * from "./variationProfiles";
+export * from "./productionBatch";

@@ -8,13 +8,31 @@ import {
 
 describe("label domain configuration", () => {
   it.each([
-    ["HD", "hd", "DAMASK_HD", 2, 0, "low"],
-    ["COTTON", "hdcoton", "COTTON_STABLE", 1.5, 0, "low"],
-    ["SATIN", "satin", "SATIN_DIAGONAL_20", 1.25, 20, "high"],
-    ["TAFFETA", "taffetas", "TAFFETA_CLASSIC_GRID", 1, 0, "medium"],
+    ["HD", "hd", "DAMASK_HD", 2, 0, "low", "BEIGE", "BLACK"],
+    ["COTTON", "hdcoton", "COTTON_STABLE", 1.75, 0, "low", "BEIGE", "BLACK"],
+    ["SATIN", "satin", "SATIN_DIAGONAL_20", 1.25, 20, "high", "CREAM", "BLACK"],
+    [
+      "TAFFETA",
+      "taffetas",
+      "TAFFETA_CLASSIC_GRID",
+      1,
+      0,
+      "medium",
+      "BEIGE",
+      "BLACK",
+    ],
   ] as const)(
     "builds canonical config for %s",
-    (material, legacyTextureType, weaveType, gridDensity, threadAngle, glossLevel) => {
+    (
+      material,
+      legacyTextureType,
+      weaveType,
+      gridDensity,
+      threadAngle,
+      glossLevel,
+      backgroundColor,
+      logoColor
+    ) => {
       const config = buildLabelConfig({ material });
 
       expect(config.material).toBe(material);
@@ -23,7 +41,9 @@ describe("label domain configuration", () => {
       expect(config.gridDensity).toBe(gridDensity);
       expect(config.threadAngle).toBe(threadAngle);
       expect(config.glossLevel).toBe(glossLevel);
-      expect(config.color).toBe("BLACK");
+      expect(config.color).toBe(backgroundColor);
+      expect(config.backgroundColor).toBe(backgroundColor);
+      expect(config.logoColor).toBe(logoColor);
       expect(config.size).toBe("50x20");
     }
   );
@@ -54,7 +74,9 @@ describe("label domain configuration", () => {
   });
 
   it("generates deterministic label codes", () => {
-    expect(generateLabelCode("TAFFETA", "BEIGE", "20x10")).toBe("TAFFETA_BEIGE_20x10");
+    expect(generateLabelCode("TAFFETA", "BEIGE", "20x10")).toBe(
+      "TAFFETA_BEIGE_20x10"
+    );
   });
 
   it("keeps satin constraints explicit and light", () => {

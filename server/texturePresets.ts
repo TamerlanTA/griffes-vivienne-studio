@@ -31,7 +31,10 @@ const TEXTURE_PRESET_NAMES: Record<TextureType, TexturePreset["name"]> = {
   taffetas: "TAFFETA",
 };
 
-const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]> = {
+const TEXTURE_PRESET_PARAMETERS: Record<
+  TextureType,
+  TexturePreset["parameters"]
+> = {
   hd: {
     threadThickness: 0.4,
     weaveDensity: 0.9,
@@ -40,9 +43,9 @@ const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]
     glossLevel: 0.2,
   },
   hdcoton: {
-    threadThickness: 0.5,
-    weaveDensity: 0.8,
-    fabricStiffness: 0.7,
+    threadThickness: 0.34,
+    weaveDensity: 1.08,
+    fabricStiffness: 0.78,
     edgeFinish: "woven",
     glossLevel: 0.15,
   },
@@ -64,7 +67,7 @@ const TEXTURE_PRESET_PARAMETERS: Record<TextureType, TexturePreset["parameters"]
 };
 
 const BASE_PROMPT_TEMPLATE = [
-  "- Apply controlled textile realism for woven label generation.",
+  "- Apply controlled premium woven-label realism for industrial clothing label generation.",
   "- Use the reference images only for textile texture, weave pattern, thread behavior, and lighting.",
   "- Keep logo threads flat woven and integrated into the fabric structure with no embroidery-style lift or outline artifacts.",
   "- Keep the result manufacturing-aligned, stable, and free from ad-hoc artistic interpretation.",
@@ -81,8 +84,8 @@ function createPromptTemplate(textureType: TextureType): string {
   return [
     BASE_PROMPT_TEMPLATE,
     `- Material target: ${preset.promptMaterialDescription}`,
-    ...preset.referenceHandlingNotes.map((note) => `- ${note}`),
-    ...MOODBOARD_PROMPT_GUIDANCE[textureType].map((note) => `- ${note}`),
+    ...preset.referenceHandlingNotes.map(note => `- ${note}`),
+    ...MOODBOARD_PROMPT_GUIDANCE[textureType].map(note => `- ${note}`),
   ].join("\n");
 }
 
@@ -97,16 +100,19 @@ function createTexturePreset(textureType: TextureType): TexturePreset {
   };
 }
 
-export const TEXTURE_PRESETS: Record<TextureType, TexturePreset> = TEXTURE_TYPES.reduce(
-  (accumulator, textureType) => {
-    accumulator[textureType] = createTexturePreset(textureType);
-    return accumulator;
-  },
-  {} as Record<TextureType, TexturePreset>
-);
+export const TEXTURE_PRESETS: Record<TextureType, TexturePreset> =
+  TEXTURE_TYPES.reduce(
+    (accumulator, textureType) => {
+      accumulator[textureType] = createTexturePreset(textureType);
+      return accumulator;
+    },
+    {} as Record<TextureType, TexturePreset>
+  );
 
 export const texturePresets = TEXTURE_PRESETS;
 
-export function getTexturePreset(textureType: TextureType | LegacyTextureType): TexturePreset {
+export function getTexturePreset(
+  textureType: TextureType | LegacyTextureType
+): TexturePreset {
   return TEXTURE_PRESETS[textureType];
 }

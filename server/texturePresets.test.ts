@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { LABEL_MATERIALS, TEXTURE_PRESETS_BY_MATERIAL } from "./label";
-import { TEXTURE_PRESETS, TEXTURE_TYPES, texturePresets } from "./texturePresets";
+import {
+  TEXTURE_PRESETS,
+  TEXTURE_TYPES,
+  texturePresets,
+} from "./texturePresets";
 
 describe("texture presets", () => {
   it("defines exactly 4 canonical presets", () => {
@@ -29,7 +33,9 @@ describe("texture presets", () => {
 
     expect(satin.defaultBackgroundGuidance).toContain("#F5F5DC");
     expect(satin.promptConstraints.join(" ")).toContain("NOT turn dark");
-    expect(satin.promptConstraints.join(" ")).toContain("Do not adopt dark garment background");
+    expect(satin.promptConstraints.join(" ")).toContain(
+      "Do not adopt dark garment background"
+    );
   });
 
   it("defines a parameter-driven preset registry for legacy texture types", () => {
@@ -45,14 +51,25 @@ describe("texture presets", () => {
     expect(TEXTURE_PRESETS.hdcoton.references).toHaveLength(4);
     expect(TEXTURE_PRESETS.taffetas.references).toHaveLength(4);
     expect(TEXTURE_PRESETS.hd.parameters.threadThickness).toBe(0.4);
-    expect(TEXTURE_PRESETS.hdcoton.parameters.threadThickness).toBe(0.5);
+    expect(TEXTURE_PRESETS.hdcoton.parameters.threadThickness).toBe(0.34);
+    expect(TEXTURE_PRESETS.hdcoton.parameters.weaveDensity).toBe(1.08);
     expect(TEXTURE_PRESETS.taffetas.parameters.weaveDensity).toBe(0.88);
     expect(TEXTURE_PRESETS.satin.parameters.threadAngle).toBe(20);
     expect(TEXTURE_PRESETS.satin.parameters.edgeFinish).toBe("clean");
     expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
-      "Apply controlled textile realism for woven label generation"
+      "Apply controlled premium woven-label realism"
     );
-    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain("soft natural cotton fibers");
-    expect(TEXTURE_PRESETS.taffetas.promptTemplate).toContain("fine, tight, and small-scale");
+    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
+      "high-density industrial jacquard weave"
+    );
+    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
+      "very tight thread spacing"
+    );
+    expect(TEXTURE_PRESETS.hdcoton.promptTemplate).toContain(
+      "clean light cotton base"
+    );
+    expect(TEXTURE_PRESETS.taffetas.promptTemplate).toContain(
+      "fine, tight, and small-scale"
+    );
   });
 });

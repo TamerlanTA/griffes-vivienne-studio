@@ -3,26 +3,67 @@ import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import {
-  type LabelConfig,
-} from "./label";
+import { type LabelConfig } from "./label";
 import { TEXTURE_TYPES } from "./texturePresets";
-import { GENERATION_CONFIG_MATERIALS } from "./types/generationConfig";
+import {
+  GENERATION_CONFIG_LOGO_TYPES,
+  GENERATION_CONFIG_MATERIALS,
+} from "./types/generationConfig";
 
-const generationConfigSchema = z.object({
-  material: z.enum(GENERATION_CONFIG_MATERIALS),
-  color: z.string().trim().min(1),
-  size: z.string().trim().min(1),
-  weave: z.string().trim().min(1),
-  density: z.number().positive(),
-  threadAngle: z.number().finite().optional(),
-  glossLevel: z.number().min(0).max(1).optional(),
-});
+const SUPPORTED_LOGO_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+
+type SupportedLogoMimeType = "image/png" | "image/jpeg" | "image/webp";
+
+export function extractMimeTypeFromDataUrl(dataUrl: string): string | null {
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+  return match?.[1] ?? null;
+}
+
+function isSupportedLogoMimeType(
+  mimeType: string | null | undefined
+): mimeType is SupportedLogoMimeType {
+  return (
+    typeof mimeType === "string" && SUPPORTED_LOGO_MIME_TYPES.has(mimeType)
+  );
+}
+
+const generationConfigSchema = z
+  .object({
+    material: z.enum(GENERATION_CONFIG_MATERIALS),
+    color: z.string().trim().min(1).optional(),
+    backgroundColor: z.string().trim().min(1).optional(),
+    logoColor: z.string().trim().min(1).optional(),
+    logoType: z.enum(GENERATION_CONFIG_LOGO_TYPES).optional(),
+    size: z.string().trim().min(1),
+    weave: z.string().trim().min(1),
+    density: z.number().positive(),
+    threadAngle: z.number().finite().optional(),
+    glossLevel: z.number().min(0).max(1).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.color && !value.backgroundColor) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "color or backgroundColor is required",
+        path: ["color"],
+      });
+    }
+  });
 
 export const labelGenerateInputSchema = z
   .object({
-    logoDataUrl: z.string().regex(/^data:image\/[a-zA-Z0-9+.-]+;base64,/).optional(),
-    logoBase64: z.string().regex(/^[A-Za-z0-9+/=]+$/).optional(),
+    logoDataUrl: z
+      .string()
+      .regex(/^data:image\/[a-zA-Z0-9+.-]+;base64,/)
+      .optional(),
+    logoBase64: z
+      .string()
+      .regex(/^[A-Za-z0-9+/=]+$/)
+      .optional(),
     textureType: z.enum(TEXTURE_TYPES).optional(),
     options: z.record(z.string(), z.unknown()).optional(),
     config: generationConfigSchema.optional(),
@@ -45,12 +86,13 @@ export const labelGenerateInputSchema = z
     }
   });
 
-function serializeLabelConfig(
-  labelConfig: LabelConfig
-) {
+function serializeLabelConfig(labelConfig: LabelConfig) {
   return {
     material: labelConfig.material,
     color: labelConfig.color,
+    backgroundColor: labelConfig.backgroundColor,
+    logoColor: labelConfig.logoColor,
+    logoType: labelConfig.logoType,
     size: labelConfig.size,
     weaveType: labelConfig.weaveType,
     gridDensity: labelConfig.gridDensity,
@@ -64,7 +106,7 @@ export const appRouter = router({
   // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -95,20 +137,36 @@ export const appRouter = router({
           if (ctx.user.hasUsedFreeTrial === 0) {
             isFreeTrial = true;
           } else if (ctx.user.creditBalance <= 0) {
-            throw new Error("Credits insuffisants. Veuillez acheter des credits.");
+            throw new Error(
+              "Credits insuffisants. Veuillez acheter des credits."
+            );
           }
         } else {
           isFreeTrial = true;
         }
 
         const logoBase64 =
-          input.logoBase64 ?? input.logoDataUrl?.replace(/^data:[^;]+;base64,/, "");
+          input.logoBase64 ??
+          input.logoDataUrl?.replace(/^data:[^;]+;base64,/, "");
         if (!logoBase64) {
           throw new Error("Aucun logo valide fourni pour la generation.");
         }
 
+        const logoMimeType = input.logoDataUrl
+          ? extractMimeTypeFromDataUrl(input.logoDataUrl)
+          : "image/png";
+
+        if (input.logoDataUrl && !isSupportedLogoMimeType(logoMimeType)) {
+          throw new Error(
+            "Format de logo non supporte pour la generation. Utilisez PNG, JPG ou WEBP."
+          );
+        }
+
         const result = await generateLabel({
           logoBase64,
+          logoMimeType: isSupportedLogoMimeType(logoMimeType)
+            ? logoMimeType
+            : "image/png",
           textureType: input.textureType,
           config: input.config,
           mode: isFreeTrial ? "preview" : "final",
@@ -118,9 +176,11 @@ export const appRouter = router({
           throw new Error(result.error || "La generation de l'image a echoue");
         }
 
-        const logoUrl = input.logoDataUrl ?? `data:image/png;base64,${logoBase64}`;
+        const logoUrl =
+          input.logoDataUrl ?? `data:image/png;base64,${logoBase64}`;
         const labelUrl = `data:image/png;base64,${result.imageBase64}`;
-        const labelCode = result.labelCode ?? result.labelConfig?.labelCode ?? "";
+        const labelCode =
+          result.labelCode ?? result.labelConfig?.labelCode ?? "";
         const seed = result.seed ?? 0;
         const logoKey = `inline://logos/${nanoid()}.png`;
         const labelKey = `inline://labels/${nanoid()}.png`;
@@ -144,7 +204,10 @@ export const appRouter = router({
             logoKey,
             labelUrl,
             labelKey,
-            textureType: result.labelConfig?.textureTypeLegacy ?? input.textureType ?? "hd",
+            textureType:
+              result.labelConfig?.textureTypeLegacy ??
+              input.textureType ??
+              "hd",
             labelCode,
             seed,
             options: storedOptions ? JSON.stringify(storedOptions) : null,

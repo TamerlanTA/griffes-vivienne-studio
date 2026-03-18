@@ -1,8 +1,18 @@
 import { generateLabelCode as generateDomainLabelCode } from "../label/generateLabelCode";
-import type { GenerationConfig } from "../types/generationConfig";
+import {
+  getGenerationBackgroundColor,
+  type GenerationConfig,
+} from "../types/generationConfig";
 
-type LabelCodeConfig = Pick<GenerationConfig, "material" | "color" | "size">;
+type LabelCodeConfig = Pick<
+  GenerationConfig,
+  "material" | "color" | "backgroundColor" | "size"
+>;
 
 export function generateLabelCode(config: LabelCodeConfig): string {
-  return generateDomainLabelCode(config.material, config.color, config.size);
+  return generateDomainLabelCode(
+    config.material,
+    getGenerationBackgroundColor(config),
+    config.size
+  );
 }

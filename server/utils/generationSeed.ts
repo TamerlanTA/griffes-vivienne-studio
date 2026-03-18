@@ -1,15 +1,31 @@
 import { createHash } from "node:crypto";
-import type { GenerationConfig } from "../types/generationConfig";
+import {
+  getGenerationBackgroundColor,
+  getGenerationLogoColor,
+  getGenerationLogoType,
+  type GenerationConfig,
+} from "../types/generationConfig";
 
 type SeedConfig = Pick<
   GenerationConfig,
-  "material" | "color" | "size" | "weave" | "density" | "threadAngle" | "glossLevel"
+  | "material"
+  | "color"
+  | "backgroundColor"
+  | "logoColor"
+  | "logoType"
+  | "size"
+  | "weave"
+  | "density"
+  | "threadAngle"
+  | "glossLevel"
 >;
 
 export function generateSeed(config: SeedConfig): number {
   const baseString = [
     config.material,
-    config.color,
+    getGenerationBackgroundColor(config),
+    getGenerationLogoColor(config),
+    getGenerationLogoType(config),
     config.size,
     config.weave,
     config.density,
