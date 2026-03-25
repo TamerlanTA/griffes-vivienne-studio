@@ -58,8 +58,8 @@ const TEXTURE_PRESET_PARAMETERS: Record<
     threadAngle: 20,
   },
   taffetas: {
-    threadThickness: 0.42,
-    weaveDensity: 0.88,
+    threadThickness: 0.28,
+    weaveDensity: 1.5,
     fabricStiffness: 0.85,
     edgeFinish: "woven",
     glossLevel: 0.35,

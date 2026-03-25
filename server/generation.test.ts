@@ -243,17 +243,44 @@ describe("material prompt rules", () => {
     expect(hdPrompt).toContain("Target label background color: BEIGE.");
     expect(hdPrompt).toContain("Target logo thread color: BLACK.");
     expect(hdPrompt).toContain("No thick edge, dark contour");
-    expect(cottonPrompt).toContain(
-      "premium woven cotton clothing label with high-density jacquard weave"
+    expect(hdPrompt).toContain(
+      "The logo and text must be built from visible thread structure, not flat filled shapes."
+    );
+    expect(hdPrompt).toContain(
+      "Add a subtle directional weave shift inside the logo compared with the background so the broche layer reads as thread-built construction."
+    );
+    expect(hdPrompt).toContain(
+      "Internal yarn structure must remain visible inside dark logo areas"
+    );
+    expect(hdPrompt).toContain(
+      "separate jacquard-selected woven motif layer"
     );
     expect(cottonPrompt).toContain(
-      "The fabric has a fine tightly packed micro-weave structure with uniform thread spacing and industrial precision"
+      "Warm light beige / natural ecru woven cotton clothing label."
     );
-    expect(cottonPrompt).toContain("industrial jacquard precision");
+    expect(cottonPrompt).toContain(
+      "Soft matte factory-made cotton surface"
+    );
+    expect(cottonPrompt).toContain("refined production cotton texture");
     expect(cottonPrompt).toContain("Target label background color: BEIGE.");
     expect(cottonPrompt).toContain("Target logo thread color: BLACK.");
     expect(cottonPrompt).toContain(
       "Do not add a thick outer edge, dark stroke, border ring, contour line, or halo around the logo."
+    );
+    expect(cottonPrompt).toContain(
+      "The logo and text must be built from visible thread structure, not flat filled shapes."
+    );
+    expect(cottonPrompt).toContain(
+      "Add a subtle directional weave shift inside the logo compared with the background so the broche layer reads as thread-built construction."
+    );
+    expect(cottonPrompt).toContain(
+      "separate jacquard-selected woven motif layer"
+    );
+    expect(cottonPrompt).toContain(
+      "HD Cotton must show a realistic micro-thin woven selvedge along the top and bottom edges only"
+    );
+    expect(cottonPrompt).toContain(
+      "folded hem, or stitched border"
     );
     expect(cottonPrompt).toContain("high-key studio lighting");
     expect(cottonPrompt).toContain("No visible side stitching");
@@ -265,34 +292,42 @@ describe("material prompt rules", () => {
       "Do not rotate the label vertically or present it as a portrait-oriented label."
     );
     expect(cottonPrompt).toContain("printed-cotton look");
-    expect(taffetaPrompt).toContain("Fine, tight woven grain");
     expect(taffetaPrompt).toContain(
-      "fine industrial precision, small weave cells, and no oversized texture"
+      "Fine dense woven taffeta clothing label"
     );
+    expect(taffetaPrompt).toContain(
+      "compact texture, subtle crispness, refined label-tape feel"
+    );
+    expect(taffetaPrompt).toContain("subtle natural woven realism");
     expect(hdPrompt).toContain(
-      "Label edge finish: Edges must be clean with realistic woven borders"
+      "Label edge finish: Edges must be realistic woven selvedges"
     );
     expect(cottonPrompt).toContain(
-      "Thread thickness: Threads should read as fine tightly packed cotton yarns with micro-scale definition"
+      "Thread thickness: Background threads should read as fine tightly packed cotton yarns with micro-scale definition"
     );
     expect(cottonPrompt).toContain(
-      "Weave density: The fabric must show a high-density fine cotton micro-weave"
+      "Weave density: The background must show a high-density fine cotton micro-weave"
     );
-    expect(cottonPrompt).toContain("not dirty, not aged, and not brownish");
+    expect(cottonPrompt).toContain(
+      "pale beige / ecru rather than stark off-white"
+    );
     expect(cottonPrompt).toContain("micro-shadows");
     expect(taffetaPrompt).toContain(
-      "Weave density: The fabric must show a tight and regular weave pattern"
+      "Weave density: The fabric must show a tight and regular taffeta weave with small compact weave cells"
     );
     expect(taffetaPrompt).toContain("Target label background color: BEIGE.");
     expect(taffetaPrompt).toContain("Target logo thread color: BLACK.");
+    expect(taffetaPrompt).toContain(
+      "slightly warm neutral beige / light ivory woven taffeta tone with subtle natural variation"
+    );
     expect(taffetaPrompt).toContain("No thick edge, dark contour");
-    expect(taffetaPrompt).toContain("fine industrial precision");
+    expect(taffetaPrompt).toContain("flatter slightly crisper surface");
     expect(hdPrompt).toContain(
       "Edges are straight, sharp, and professionally finished."
     );
     expect(cottonPrompt).toContain("No fuzzy borders.");
     expect(taffetaPrompt).toContain(
-      "The full rectangular or square label is clearly visible."
+      "The label is centered in the frame and fully visible."
     );
   });
 });

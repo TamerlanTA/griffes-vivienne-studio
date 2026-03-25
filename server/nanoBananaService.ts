@@ -26,10 +26,15 @@ import {
   type LabelConfigInput,
 } from "./label";
 import {
+  GLOBAL_COMPACT_RULES,
+  getMaterialPromptSpec,
+} from "./label/promptRules";
+import {
   getTexturePreset,
   type TexturePreset as ResolvedTexturePreset,
   type TextureType,
 } from "./texturePresets";
+import { getTextureControlPreset } from "./textureControlPresets";
 import {
   getGenerationBackgroundColor,
   getGenerationLogoColor,
@@ -63,7 +68,7 @@ const MODEL_CONFIG = {
 
 const MAX_WOVEN_GENERATION_ATTEMPTS = 3;
 const MAX_API_GENERATION_RETRIES = 2;
-const MAX_PROMPT_LENGTH = 2000;
+const MAX_PROMPT_LENGTH = 3600;
 const VALIDATION_RESPONSE_MIME_TYPE = "text/plain";
 const BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
 const INVALID_PROMPT_PATTERN = /\b(?:undefined|null)\b/i;
@@ -71,10 +76,37 @@ const INVALID_TEXTILE_BODY_PATTERN =
   /\b(?:coarse|rough|burlap|linen|handmade)\b/i;
 const API_NEGATIVE_PROMPT =
   "burlap, sack fabric, rough textile, linen, handmade fabric, loose weave, macro fibers, printed, flat, smooth surface, plastic texture, digital rendering, logo overlay, artificial sharp edges, embroidery, sticker effect, stamped ink, thick outline, dark contour, border ring";
+const HD_COTTON_NEGATIVE_PROMPT =
+  "coarse twill ridges, exaggerated diagonal bands, ribbon-like diagonal texture, satin ribbon texture, hard ribbed twill, synthetic white fabric, flat black fill, printed ink look, embroidery, patch effect, embossed logo, glossy textile, glossy 3D relief, visible decorative border band";
+const HD_COTTON_BASE_NEGATIVE_PROMPT =
+  "synthetic white fabric, glossy textile, coarse twill ridges, ribbon-like diagonal texture, satin ribbon texture, decorative border band, harsh contrast, folded hem, stitched border, dark or colored wood surface";
+const TAFFETA_NEGATIVE_PROMPT =
+  "cotton softness, cotton texture, organic yarn, fuzzy weave, porous surface, canvas texture, linen texture, burlap, coarse weave, coarse grain, thick fabric strip, natural cloth swatch, fabric sample, oversized weave cells, open grid weave, macro fibers, embroidery, raised stitching, stitched outline, embroidered logo, printed logo, patch effect, applique, thick padded edges, rounded label edges, satin gloss drift, hd embossed drift, heavy grain, rough surface";
+const HD_MOTIF_NEGATIVE_PROMPT =
+  "flat black fill, smooth black fill, flat black letters, uniform dark shape, uniform dark shape interior, solid black graphic surface, printed logo, printed text, logo merged into the same weave with no differentiation, motif merged into background weave with no internal structure, embroidery, patch effect, embossed logo, glossy black surface, noisy black grain, fuzzy black edges, fluffy black grain, hairy textile edges, noisy black motif, soft smeared black letters, cotton-like texture drift, background reinterpretation, green cutting mat, cutting mat, self-healing mat, workshop surface, workbench, sewing table, craft table, wood surface, wood tabletop, random tabletop, grid background, studio prop reinterpretation, pure white label, optical white fabric, paper white textile, cold white label, label blending tonally into the marble, washed out fabric tone, over-bright textile, white canvas look";
+const HD_COTTON_MOTIF_NEGATIVE_PROMPT =
+  "flat black fill, uniform dark shape, solid black graphic surface, printed logo, printed ink look, logo merged into the same weave with no differentiation, embroidery, patch effect, embossed logo, glossy black surface, thick outline";
 
 type GeminiInlineImage = {
   mimeType: string;
   data: string;
+};
+
+type GenerationExecutionContext = {
+  ai: GoogleGenAI;
+  modelId: string;
+  mode: GenerateLabelInput["mode"];
+  labelConfig: LabelConfig;
+  labelCode: string;
+  seed: number;
+  referenceImages: GeminiInlineImage[];
+};
+
+type GenerationStageResult = {
+  imageBase64: string;
+  validationPassed: boolean;
+  validationReason: string;
+  attemptsUsed: number;
 };
 
 type GeminiPart =
@@ -526,11 +558,15 @@ function getApiMaterialPromptLines(config: LabelConfig): readonly string[] {
       return [
         "The label has a high-density fine woven cotton structure with very tight thread spacing, uniform micro-weave, and industrial jacquard weaving.",
         "The weave must be micro-scale and tightly packed with a smooth micro-textured surface typical of premium fashion woven labels.",
+        "The logo and text must be built from visible thread structure as a distinct woven motif layer, not flat filled shapes.",
+        "Keep a subtle directional weave shift inside the logo versus the background so the mark reads as a jacquard-selected woven motif rather than a filled patch or patch-like insert.",
         "Keep the label flat, clean, refined, and industrially precise with no exaggerated yarn scale.",
       ];
     case "HD":
       return [
         "The label has a dense high-definition damask weave with compact thread spacing, precise micro-weave control, and crisp industrial thread definition.",
+        "The logo and text must be built from visible thread structure as a distinct woven motif layer, not flat filled shapes.",
+        "Use a subtle directional weave shift inside the logo compared with the background so the shape reads as thread-built construction rather than a filled patch or patch-like insert.",
         "The result must stay fine, controlled, flat, and newly manufactured with premium woven-label precision.",
       ];
     case "SATIN":
@@ -540,14 +576,34 @@ function getApiMaterialPromptLines(config: LabelConfig): readonly string[] {
       ];
     case "TAFFETA":
       return [
-        "The label has a fine tightly packed taffeta weave with a compact classic grid, restrained sheen, and premium industrial thread definition.",
-        "Keep the structure micro-scale, tight, and precise with no exaggerated checker pattern or oversized texture.",
+        "Fine dense compact woven taffeta clothing label with a very tight regular weave, flat thin surface, and a clean industrial label-tape feel.",
+        "The taffeta surface must show a fine regular small-cell grid pattern — tight compact weave cells that are clearly smaller and finer than cotton.",
+        "Keep the material flat, clean, thin, and industrially precise: tighter than cotton, no soft organic yarn presence, no heavy grain, no canvas texture, no open natural-fiber texture.",
+        "The label must read as a manufactured precision label tape, not as a thick fabric swatch, patch, or natural cloth sample.",
+        "Keep a slightly warm neutral beige / light ivory tone with restrained natural woven variation and no sterile artificial uniformity.",
+        "The logo must be flat woven into the same fine taffeta structure — never embroidered, never raised, never outlined with thick stitching.",
       ];
   }
 }
 
+function buildCompactTextureDifferentiationPrompt(
+  config: LabelConfig
+): string | undefined {
+  switch (config.material) {
+    case "COTTON":
+      return "HD COTTON LOGO: visible internal yarn grain, subtle motif-vs-background directional weave shift, slightly tighter cleaner thread packing than the base fabric, and narrow real-production woven selvedge/lisiere at the top and bottom edges; never uniform blend, patch, embroidery, or print.";
+    case "HD":
+      return "HD LOGO: visible internal yarn grain with a subtle motif-vs-background directional weave shift and slightly tighter cleaner thread packing so the logo reads as thread-built construction, never a uniform blend, patch, embroidery, or print.";
+    default:
+      return undefined;
+  }
+}
+
 function buildColorControlPrompt(config: LabelConfig): string {
-  const backgroundColor = getSafeBackgroundColorPrompt(config);
+  const backgroundColor =
+    config.material === "TAFFETA"
+      ? "slightly warm neutral beige / light ivory woven taffeta tone with subtle natural variation"
+      : getSafeBackgroundColorPrompt(config);
   const logoColor = getSafeLogoColorPrompt(config);
 
   return [
@@ -556,6 +612,411 @@ function buildColorControlPrompt(config: LabelConfig): string {
     "The specified colors must be clearly visible and accurately rendered. Do not default to black or neutral tones unless explicitly specified.",
     "The fabric must appear clean and refined, not dirty, not aged, and not brownish.",
   ].join(" ");
+}
+
+function buildTextureFreezePrompt(
+  preset: ReturnType<typeof getTextureControlPreset>
+): string {
+  if (preset.name === "HD" || preset.name === "HD_COTTON") {
+    return [
+      "TEXTURE BASELINE:",
+      "- Use the approved preset as reference.",
+      "- Preserve the overall fabric appearance, tone, and lighting.",
+      "- The background must remain unchanged.",
+      "- The logo and text weave structure must be allowed to evolve and improve.",
+      `- Treat preset ${preset.name} as the baseline for the background fabric only.`,
+    ].join("\n");
+  }
+
+  return [
+    "TEXTURE FREEZE:",
+    "- Do not alter the weave pattern, thread density, lighting or material appearance from the reference images.",
+    `- Treat preset ${preset.name} as locked.`,
+    "- Preserve the same weave structure, thread scale, and surface response across repeated generations.",
+    "- No drift, reinterpretation, or scene-driven texture changes.",
+  ].join("\n");
+}
+
+function buildStrictTextureControlPrompt(
+  preset: ReturnType<typeof getTextureControlPreset>
+): string {
+  if (preset.name === "HD" || preset.name === "HD_COTTON") {
+    return [
+      "STRUCTURAL FLEXIBILITY:",
+      "- Keep the approved background texture, tone, and lighting unchanged.",
+      "- Apply controlled flexibility only inside the logo and text region.",
+      "- Allow logo and text weave to improve through visible thread structure, subtle internal yarn grain, and tighter denser thread packing than the background.",
+      "- Allow a subtle directional weave difference between the logo and the background to improve broche separation.",
+      "- Relief must remain very subtle and come only from weave structure.",
+      "- No shadows, no gradients, no emboss effect, and no 3D rendering.",
+    ].join("\n");
+  }
+
+  return [
+    "STRICT TEXTURE CONTROL:",
+    "- The texture preset is locked and must stay visually consistent with the approved references.",
+    "- Do not alter the weave pattern, thread density, lighting or material appearance from the reference images.",
+    "- Thread thickness must remain uniform and consistent.",
+    "- Grid density and material response must remain stable.",
+  ].join("\n");
+}
+
+function buildLogoIntegrationPriorityPrompt(
+  config: LabelConfig
+): string | undefined {
+  if (config.material !== "HD" && config.material !== "COTTON") {
+    return undefined;
+  }
+
+  return [
+    "LOGO INTEGRATION PRIORITY:",
+    "- Logo and text must NOT be treated as flat filled shapes.",
+    "- Construct the logo and text as a distinct woven motif layer using visible thread structure.",
+    "- Introduce subtle internal yarn grain inside the shapes.",
+    "- Avoid smooth, uniform black fill.",
+    "- Keep logo threads slightly denser, tighter, and cleaner than the background.",
+    "- Keep the background weave softer and more open than the logo weave.",
+    "- Use subtle directional weave variation between the logo and background to improve broche separation.",
+    "- Keep relief very subtle (~5%) using weave only.",
+    "- No shadows, no gradients, no emboss effect, no patch effect, and no 3D rendering.",
+  ].join("\n");
+}
+
+function buildScopedModificationRulesPrompt(
+  config: LabelConfig
+): string | undefined {
+  if (config.material !== "HD" && config.material !== "COTTON") {
+    return undefined;
+  }
+
+  return [
+    "RULES:",
+    "- Do not change composition or proportions.",
+    "- Do not change label shape.",
+    "- Do not alter background texture.",
+    "- Only modify logo and text weave behavior.",
+  ].join("\n");
+}
+
+function buildCompactTextureFreezePrompt(
+  preset: ReturnType<typeof getTextureControlPreset>
+): string {
+  if (preset.name === "HD" || preset.name === "HD_COTTON") {
+    return sanitizePrompt(
+      `TEXTURE BASELINE: approved ${preset.name} preset is the baseline for the background only; preserve overall fabric appearance, tone, and lighting; background unchanged; logo and text weave may evolve and improve.`
+    );
+  }
+
+  return sanitizePrompt(
+    `TEXTURE FREEZE: preset ${preset.name} is locked; do not alter weave pattern, thread density, lighting, or material appearance from the reference images.`
+  );
+}
+
+function buildCompactStrictTextureControlPrompt(
+  preset: ReturnType<typeof getTextureControlPreset>
+): string {
+  if (preset.name === "HD" || preset.name === "HD_COTTON") {
+    return sanitizePrompt(
+      "STRUCTURAL FLEXIBILITY: keep approved background texture, tone, and lighting unchanged; apply controlled flexibility only inside the logo and text region; allow visible thread structure, subtle internal yarn grain, tighter denser thread packing, subtle directional weave difference, and very subtle weave-only relief; no shadows, gradients, emboss, or 3D."
+    );
+  }
+
+  return sanitizePrompt(
+    `STRICT TEXTURE CONTROL: preset ${preset.name} stays visually consistent with the approved references.`
+  );
+}
+
+function buildCompactLogoIntegrationPriorityPrompt(
+  config: LabelConfig
+): string | undefined {
+  if (config.material !== "HD" && config.material !== "COTTON") {
+    return undefined;
+  }
+
+  return sanitizePrompt(
+    "LOGO INTEGRATION PRIORITY: distinct woven motif layer, thread-built not flat fill; internal yarn grain inside shapes; denser tighter cleaner logo threads than softer background; subtle directional weave variation; ~5% weave-only relief; no shadows, patch effect, gradients, emboss, or 3D."
+  );
+}
+
+function buildCompactScopedModificationRulesPrompt(
+  config: LabelConfig
+): string | undefined {
+  if (config.material !== "HD" && config.material !== "COTTON") {
+    return undefined;
+  }
+
+  return sanitizePrompt(
+    "RULES: do not change composition or proportions; do not change label shape; do not alter background texture; only modify logo and text weave behavior."
+  );
+}
+
+function isHdCotton(textureType: LabelConfig["textureTypeLegacy"]): boolean {
+  return textureType === "hdcoton";
+}
+
+function joinPromptLines(lines: Array<string | undefined>): string {
+  return lines
+    .filter((line): line is string => typeof line === "string" && line.length > 0)
+    .join("\n");
+}
+
+export function buildHdCottonBasePrompt(
+  config: LabelConfig,
+  options: {
+    hasReferenceImages: boolean;
+    seed: number;
+    retryFeedback?: string;
+  }
+): string {
+  const retryFeedback = options.retryFeedback?.trim();
+  const positivePrompt = joinPromptLines([
+    "STAGE A - HD COTTON BASE:",
+    retryFeedback ? `Retry correction: ${retryFeedback}` : undefined,
+    options.hasReferenceImages
+      ? "Use the approved cotton reference background as the locked Stage A anchor for cotton family, subtle diagonal ground weave, selvedge, lighting, and composition."
+      : "Lock the HD Cotton base family first: background fabric, subtle diagonal ground weave, selvedge, lighting, and composition.",
+    "Generate or preserve the HD Cotton base only before motif refinement.",
+    "COMPOSITION:",
+    "- One long horizontal woven cotton label only, centered, fully visible, clean margins, no duplicates or stacking.",
+    "- Slight top-down camera 15 to 25 degrees, soft neutral studio lighting, fixed light natural wood surface, and preserved label shape.",
+    "COTTON BASE:",
+    "- Warm light beige / natural ecru woven cotton clothing label.",
+    `- Background target stays ${getSafeBackgroundColorPrompt(config)} while remaining in the approved natural ecru cotton family.`,
+    "- Soft matte factory-made cotton surface with gentle yarn presence and a subtle fine diagonal woven direction in the ground fabric.",
+    "- Preserve refined factory-made cotton behavior, stable composition, and an ultra-subtle selvedge on the top and bottom edges only.",
+    "- Keep the cotton ground soft, matte, stable, and textile-real with no global reinterpretation.",
+    "STAGE A SCOPE:",
+    "- Prioritize base fabric behavior, diagonal woven ground, selvedge, composition, wood surface, and lighting stability.",
+    "- Do not prioritize logo or text refinement in this pass; keep the base ready for a motif-only refinement pass.",
+  ]);
+
+  const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
+  assertValidGenerationPrompt(sanitizedPositivePrompt);
+
+  const finalPrompt = sanitizePrompt(
+    [
+      sanitizedPositivePrompt,
+      `Negative prompt: ${API_NEGATIVE_PROMPT}, ${HD_COTTON_BASE_NEGATIVE_PROMPT}.`,
+      `Seed ${options.seed}.`,
+    ].join(" ")
+  );
+
+  assertValidPrompt(finalPrompt);
+  return finalPrompt;
+}
+
+export function buildHdCottonMotifRefinementPrompt(
+  config: LabelConfig,
+  options: {
+    hasReferenceImages: boolean;
+    seed: number;
+    retryFeedback?: string;
+  }
+): string {
+  const retryFeedback = options.retryFeedback?.trim();
+  const positivePrompt = joinPromptLines([
+    "STAGE B - HD COTTON MOTIF REFINEMENT:",
+    retryFeedback ? `Retry correction: ${retryFeedback}` : undefined,
+    "The supplied Stage A image is the locked HD Cotton base anchor.",
+    options.hasReferenceImages
+      ? "Use the approved cotton references only to guide motif thread behavior while preserving the approved Stage A base fabric family exactly."
+      : undefined,
+    "PRESERVE EXACTLY:",
+    "- Preserve the background exactly: cotton tone, subtle diagonal ground weave, selvedge, lighting, wood surface, label shape, composition, and margins.",
+    "- Preserve the approved HD Cotton base behavior from Stage A with no new background, no new cotton family, and no global reinterpretation.",
+    "- Do not reinterpret the whole fabric, change the label proportions, drift the wood background, or weaken the diagonal ground weave.",
+    "REFINE ONLY THE MOTIF:",
+    "- Refine only the logo and text woven integration on top of the locked base.",
+    `- Motif thread target stays ${getSafeLogoColorPrompt(config)} with the supplied logo structure preserved: ${describeLogoType(config.logoType)}.`,
+    "- Logo and text must appear visibly woven into the cloth through tighter, denser, finer thread behavior than the softer background ground.",
+    "- Logo and text must visibly read as a distinct woven motif layer, and the motif and background must not share the exact same weave expression.",
+    "- Motif threads must read tighter, denser, more compact, slightly finer, and cleaner through thread transitions than the softer background cloth.",
+    "- Internal woven thread logic and yarn grain must remain visible inside the black motif shapes so they do not read as a uniform dark fill.",
+    "- The black motif must remain clearly black but must not read as a flat solid fill, solid black graphic surface, or dark graphics placed on the same fabric.",
+    "- Encourage slightly finer motif thread rhythm, slightly denser motif packing, slightly cleaner motif edges through thread transitions, and only subtle weave-only relief.",
+    "- Separation must come from thread density, weave rhythm, and internal yarn structure, not from outline, embossing, print effect, patch effect, stitched look, or lighting tricks.",
+    "- If text is present, each letter must show woven micro-structure, slight textile stepping, visible thread-built strokes, and compact internal thread logic instead of smooth vector-like bars.",
+    "KEEP DISALLOWED:",
+    "- No flat black fill, no uniform dark shape, no solid black graphic surface, no printed logo, no embroidery, no patch effect, no embossed logo, no glossy black surface, no stitched look, and no motif collapse into the same ground weave with no differentiation.",
+  ]);
+
+  const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
+  assertValidGenerationPrompt(sanitizedPositivePrompt);
+
+  const finalPrompt = sanitizePrompt(
+    [
+      sanitizedPositivePrompt,
+      `Negative prompt: ${API_NEGATIVE_PROMPT}, ${HD_COTTON_MOTIF_NEGATIVE_PROMPT}.`,
+      `Seed ${options.seed}.`,
+    ].join(" ")
+  );
+
+  assertValidPrompt(finalPrompt);
+  return finalPrompt;
+}
+
+export function buildHdMotifRefinementPrompt(
+  config: LabelConfig,
+  options: {
+    hasReferenceImages: boolean;
+    seed: number;
+    retryFeedback?: string;
+  }
+): string {
+  const retryFeedback = options.retryFeedback?.trim();
+  const positivePrompt = joinPromptLines([
+    "HD MOTIF REFINEMENT:",
+    retryFeedback ? `Retry correction: ${retryFeedback}` : undefined,
+    "The approved HD reference is the locked base anchor.",
+    options.hasReferenceImages
+      ? "Use the approved HD references to preserve the HD base exactly and use the improved woven logo/text behavior only as motif guidance."
+      : undefined,
+    "PRESERVE EXACTLY:",
+    "- Preserve the full HD base exactly: polished white onyx / light marble support surface, approved HD texture family, weave density, surface sharpness, scene, lighting, framing, label placement, composition, and margins.",
+    "- Preserve the approved HD label fabric tone exactly: light warm ivory / pale beige / off-white, slightly warm, clearly distinct from the brighter cooler marble background. The label must never become pure white.",
+    "- Keep the marble background as the support surface only. The label fabric stays in the approved warm ivory / light beige HD textile family and must not shift toward pure white or tonally merge into the marble.",
+    "- Preserve the approved HD base identity exactly: clean, controlled, sharp, refined, dense, premium woven HD look.",
+    "- Do not change the support surface, scene, framing, weave family, label tone, or HD sharpness, and do not introduce cotton-like texture drift.",
+    "REFINE ONLY THE MOTIF:",
+    "- Preserve the HD base exactly. Refine only the logo and text so they display slightly tighter, denser, cleaner woven thread behavior than the background, with visible internal thread logic inside the black shapes. The motif must remain clearly black but never read as a smooth uniform fill.",
+    "- Refine only the woven behavior inside the logo and text.",
+    "- The logo and text must remain visibly constructed from woven threads with internal thread logic inside the black shapes. Do not flatten the motif into a smooth graphic fill.",
+    `- Motif thread target stays ${getSafeLogoColorPrompt(config)} and preserves the supplied logo structure: ${describeLogoType(config.logoType)}.`,
+    "- The logo and text must appear visibly woven into the HD label through tighter, denser, cleaner thread behavior than the approved background surface.",
+    "- The motif must show slightly tighter, denser, cleaner, more compact thread behavior than the HD background while staying fully woven into the same label.",
+    "- Internal woven thread logic must remain visible inside the black motif shapes so they do not read as a uniform dark fill.",
+    "- The black motif must remain clearly black but must not read as a flat solid fill, solid black graphic surface, or printed logo sitting on top.",
+    "- Keep the woven-thread structure, but make motif edges slightly cleaner and more controlled through tighter thread alignment and cleaner thread transitions, without print-like smoothness.",
+    "- Logo realism and text realism must both improve through subtle internal thread structure, slightly denser thread rhythm, and clean woven edges created by thread transitions rather than graphic smoothness.",
+    "- Text must feel woven, not merely clean black lettering; letter interiors must keep subtle internal woven structure with no flat black letter fill, and text edges should become slightly cleaner and more controlled without losing thread-built realism.",
+    "- Encourage only a subtle polish: slightly denser motif packing, slightly tighter black thread packing, slightly clearer internal thread readability, slightly cleaner thread transitions, and reduced fuzzy black grain without changing the approved HD base.",
+    "KEEP DISALLOWED:",
+    "- No green cutting mat, no cutting mat, no self-healing mat, no workshop surface, no workbench, no sewing table, no craft table, no wood surface, no wood tabletop, no random tabletop, and no grid background.",
+    "- No pure white label, no optical white fabric, no paper white textile, no cold white label, no label tonally blending into the marble, no washed out fabric tone, no over-bright textile, and no white canvas look.",
+    "- No smooth or flat black fill, no flat black letters, no printed logo or text, no motif merged into the background weave with no internal structure, no fuzzy black edges, no fluffy black grain, no hairy textile edges, no noisy black motif, no soft smeared black letters, no embroidery, no patch effect, no embossed logo, no glossy black surface, no cotton-like texture drift, and no background reinterpretation.",
+  ]);
+
+  const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
+  assertValidGenerationPrompt(sanitizedPositivePrompt);
+
+  const finalPrompt = sanitizePrompt(
+    [
+      sanitizedPositivePrompt,
+      `Negative prompt: ${API_NEGATIVE_PROMPT}, ${HD_MOTIF_NEGATIVE_PROMPT}.`,
+      `Seed ${options.seed}.`,
+    ].join(" ")
+  );
+
+  assertValidPrompt(finalPrompt);
+  return finalPrompt;
+}
+
+function buildHdCottonSinglePassPrompt(
+  config: LabelConfig,
+  options: {
+    hasReferenceImages: boolean;
+    seed: number;
+    retryFeedback?: string;
+  }
+): string {
+  const retryFeedback = options.retryFeedback?.trim();
+  const positivePrompt = joinPromptLines([
+    ...(options.hasReferenceImages
+      ? [
+          "Match the approved cotton reference background first. Preserve the same cotton tone, surface softness, lighting family, and edge construction. Only allow controlled variation inside the logo and text weave.",
+        ]
+      : []),
+    retryFeedback ? `Retry correction: ${retryFeedback}` : undefined,
+    "COMPOSITION:",
+    "- One long horizontal woven cotton label only, centered, fully visible, clean margins, no duplicates or stacking.",
+    "- Slight top-down camera 15 to 25 degrees, soft neutral studio lighting, fixed light natural wood surface.",
+    "- Preserve label proportions and shape.",
+    "COTTON BACKGROUND:",
+    "- Warm light beige / natural ecru woven cotton clothing label.",
+    "- Soft matte factory-made cotton surface with subtle woven face, gentle natural yarn presence, and fine visible diagonal woven direction in the ground fabric.",
+    "- Match the approved cotton reference background family first and preserve its tone, lighting, edge language, and refined factory-made cotton behavior.",
+    "- Avoid heavy twill ridges, ribbon-like diagonal bands, synthetic drift, or overly regular fabric behavior.",
+    "WOVEN MOTIF:",
+    "- Logo and text woven into the cloth as a distinct motif layer, not uniformly blended into the same background weave expression.",
+    "- The motif must appear visibly woven into the label through tighter, finer, denser thread behavior than the softer background cloth.",
+    "- The motif must preserve internal thread logic and subtle yarn texture inside the black shapes, so it reads as a true woven motif layer rather than a uniform black surface merged into the same fabric.",
+    "- Separation must come from weave behavior, thread packing, and internal yarn structure, not from outline or contrast alone.",
+    `- Motif thread target stays ${getSafeLogoColorPrompt(config)}.`,
+    "- The black motif must remain clearly black but never read as a solid flat black fill, printed ink, or simply darkened background weave.",
+    "- Thread-built only: not printed, not embroidered, not patch-like, not embossed, not glossy, not 3D.",
+    "- If text is present, each letter must look like real woven lettering built from tiny thread cells inside the same textile grid, not smooth vector typography stamped onto cotton.",
+    "- Letter strokes must stay flush with the label plane and show visible woven structure, tiny thread variation, and subtle micro-breaks inside the dark areas.",
+    "- Letter edges must look slightly stepped and textile-real at macro scale, never perfectly smooth, solid, or ink-flat.",
+    "EDGE FINISH:",
+    "- Ultra-narrow woven cotton selvedge on the top and bottom only.",
+    "- A real integrated woven finishing edge used in cotton label production, extremely subtle and structural, never decorative.",
+    "- Not stitched, folded, striped, framed, ribbon-like, or a visible border band.",
+    "KEEP FIXED:",
+    "- Preserve composition, label shape, background fabric family, warm cotton tone family, lighting, and wood background; allow controlled refinement only inside the logo and text weave region.",
+    `LOGO STRUCTURE: ${describeLogoType(config.logoType)}.`,
+  ]);
+
+  const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
+  assertValidGenerationPrompt(sanitizedPositivePrompt);
+
+  const finalPrompt = sanitizePrompt(
+    [
+      sanitizedPositivePrompt,
+      `Negative prompt: ${API_NEGATIVE_PROMPT}, ${HD_COTTON_NEGATIVE_PROMPT}.`,
+      `Seed ${options.seed}.`,
+    ].join(" ")
+  );
+
+  assertValidPrompt(finalPrompt);
+  return finalPrompt;
+}
+
+function buildMaterialSpecificLogoPrompt(config: LabelConfig): readonly string[] {
+  if (config.material === "COTTON") {
+    return [
+      "The cotton background weave must remain locked and unchanged.",
+      "The cotton logo and text must not be integrated uniformly into the background weave.",
+      "The logo and text must read as a distinct woven motif layer built from visible thread structure, not a flat filled shape with texture on top.",
+      "The cotton logo threads must read slightly denser, tighter, cleaner, and more structured than the softer more open background weave.",
+      "Internal yarn grain must remain visible inside the logo and text at fabric scale with no blur and no smooth fill.",
+      "Keep edges crisp and readable without softening or over-sharpening them.",
+      "Use a subtle directional weave variation between logo and background so the broche effect comes from thread behavior rather than color contrast.",
+      "The cotton logo must not use the same texture uniformly as the background and must not collapse into a flat black area.",
+      "The cotton logo must not read as a patch, applique, embroidery, printed ink, or outlined motif.",
+      "Fine thread structure must remain visible at small scale and black threads must stay textured rather than flat.",
+      "Relief must come from weave structure, thread density, and thread contrast only, not from lighting changes or shadows.",
+      "No artificial shadows, no drop shadows, no bevel, no emboss effect, and no 3D rendering are allowed on the cotton logo.",
+      "No glossy, plastic, ink, or printed appearance is allowed on the cotton logo.",
+      "The cotton selvedge must stay narrow, clean, woven, and production-real on the top and bottom edges, never a folded hem or stitched border.",
+    ];
+  }
+
+  if (config.material === "HD") {
+    return [
+      "The HD background weave must remain locked and unchanged.",
+      "The HD logo and text must use broche-style thread behavior rather than fully blending into the background weave.",
+      "The HD logo threads must read denser, more compact, slightly tighter, cleaner, and subtly raised versus the background.",
+      "The HD logo must show visible internal yarn grain even in dark areas and must not collapse into a smooth black fill.",
+      "The HD logo and text must read as a distinct woven motif layer built from visible thread structure, not a flat filled shape with texture overlaid on top.",
+      "Use subtle directional weave variation between the HD logo and background to create structural separation without changing lighting or contrast.",
+      "Keep the relief extremely subtle and create it through weave structure only.",
+      "Do not over-integrate the HD logo into the fabric and do not let it read like only a darker variation of the same weave.",
+      "The HD logo must not read as a patch, applique, embroidery, printed ink, or outlined motif.",
+      "No shadows, gradients, emboss, gloss tricks, patch effect, or 3D rendering are allowed on the HD logo.",
+    ];
+  }
+
+  if (config.material === "TAFFETA") {
+    return [
+      "The taffeta base must stay very fine, dense, compact, thin, and flat — a manufactured industrial label-tape surface with tight regular weave cells and no cotton softness or canvas texture.",
+      "The logo and text must be flat woven into the same fine taffeta structure — never embroidered, never raised, never outlined with thick stitching, and never patch-like.",
+      "Keep the logo clean, readable, and fully integrated into the taffeta weave with no separate outline ring, no embroidery lift, no raised border, and no stitched halo.",
+      "The label must not look like a canvas patch, a thick fabric swatch, or a sewn applique — it must read as a thin flat precision woven label tape.",
+      "Preserve the approved neutral paper-like support presentation and do not drift to marble, wood, concrete, or a random blank white background.",
+    ];
+  }
+
+  return [];
 }
 
 export function sanitizePrompt(prompt: string): string {
@@ -609,6 +1070,16 @@ export function buildApiPrompt(
   const sizeProfile = getLabelSizeProfile(config.size);
   const primaryLogoHint = getLogoTypePromptHints(config.logoType)[0];
   const retryFeedback = options.retryFeedback?.trim();
+  const materialPromptSpec = getMaterialPromptSpec(config.material);
+  const textureControlPreset = getTextureControlPreset(config.material);
+  const compactTextureBaseline =
+    buildCompactTextureFreezePrompt(textureControlPreset);
+  const compactStructuralFlexibility =
+    buildCompactStrictTextureControlPrompt(textureControlPreset);
+  const compactLogoIntegration =
+    buildCompactLogoIntegrationPriorityPrompt(config);
+  const compactScopedRules = buildCompactScopedModificationRulesPrompt(config);
+  const materialSpecificLogoPrompt = buildMaterialSpecificLogoPrompt(config);
   const outlineGuardrail =
     config.material === "SATIN"
       ? undefined
@@ -616,14 +1087,34 @@ export function buildApiPrompt(
   const referenceInstruction = options.hasReferenceImages
     ? "Reference images guide micro-weave, jacquard behavior, and lighting only."
     : undefined;
+  const materialNegativePrompt =
+    config.material === "TAFFETA"
+      ? TAFFETA_NEGATIVE_PROMPT
+      : API_NEGATIVE_PROMPT;
+
+  if (isHdCotton(config.textureTypeLegacy)) {
+    return buildHdCottonSinglePassPrompt(config, options);
+  }
+
+  if (config.material === "HD") {
+    return buildHdMotifRefinementPrompt(config, options);
+  }
 
   const positivePrompt = [
+    GLOBAL_COMPACT_RULES,
+    ...materialPromptSpec.compactLines,
+    compactTextureBaseline,
+    compactStructuralFlexibility,
+    compactLogoIntegration,
+    compactScopedRules,
     `A high-resolution studio photograph of a premium woven ${getMaterialPromptLabel(config.material)} clothing label.`,
     ...getApiMaterialPromptLines(config),
     buildColorControlPrompt(config),
+    buildCompactTextureDifferentiationPrompt(config),
     "The logo must be woven into the fabric using threads, not printed or placed on top, and the thread follows the weave structure of the label.",
     "Show realistic thread interlacing, subtle micro-shadows, and clean industrial label depth.",
     "Generate the label and logo together in one woven step. Do not overlay or print the logo afterward.",
+    ...materialSpecificLogoPrompt,
     `Use a ${sizeProfile.displayName} label format (${config.size}) with clean margins and a flat label structure.`,
     `Logo structure: ${describeLogoType(config.logoType)}.`,
     primaryLogoHint,
@@ -641,13 +1132,20 @@ export function buildApiPrompt(
   const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
   assertValidGenerationPrompt(sanitizedPositivePrompt);
 
-  const finalPrompt = sanitizePrompt(
-    [
-      sanitizedPositivePrompt,
-      `Negative prompt: ${API_NEGATIVE_PROMPT}.`,
-      `Seed ${options.seed}.`,
-    ].join(" ")
-  );
+  const finalPromptParts =
+    config.material === "TAFFETA"
+      ? [
+          `Negative prompt: ${TAFFETA_NEGATIVE_PROMPT}.`,
+          sanitizedPositivePrompt,
+          `Seed ${options.seed}.`,
+        ]
+      : [
+          sanitizedPositivePrompt,
+          `Negative prompt: ${materialNegativePrompt}.`,
+          `Seed ${options.seed}.`,
+        ];
+
+  const finalPrompt = sanitizePrompt(finalPromptParts.join(" "));
 
   assertValidPrompt(finalPrompt);
   return finalPrompt;
@@ -687,10 +1185,12 @@ function getMaterialQualityGuardrails(config: LabelConfig): readonly string[] {
     case "HD":
       return [
         "Maintain clean high-density weave with compact thread spacing and clean woven edge transitions without any separate outline ring.",
+        "Keep the logo built as a distinct woven motif layer with visible thread structure and a subtle directional weave shift versus the background, not a smooth filled patch.",
       ];
     case "COTTON":
       return [
         "Maintain a premium woven cotton label look with high-density fine micro-weave, tight thread spacing, flat structure, clean cut contours, and industrial jacquard precision.",
+        "Keep the logo built as a distinct woven motif layer with visible thread structure and a subtle directional weave shift versus the background, and preserve the narrow cotton selvedge/lisiere at the top and bottom edges.",
       ];
     case "SATIN":
       return [
@@ -698,30 +1198,48 @@ function getMaterialQualityGuardrails(config: LabelConfig): readonly string[] {
       ];
     case "TAFFETA":
       return [
-        "Keep the taffeta grain fine, tight, and small-scale with no oversized weave cells, exaggerated checker pattern, or separate outline ring around the logo.",
+        "Keep the taffeta weave very fine, dense, compact, and regular with tight small-scale weave cells — tighter and finer than cotton, with no oversized grid, no heavy grain, no porous texture, and no canvas or open natural-fiber character.",
+        "The taffeta surface must be flat, thin, and industrially clean — a manufactured label-tape look, not a thick fabric swatch or soft natural cloth.",
+        "The logo must be flat woven into the taffeta grid with no embroidery lift, no raised stitching, no thick outline, and no separate border ring around the logo.",
+        "No cotton softness, no fuzzy surface, no organic yarn presence, and no natural cloth swatch appearance.",
       ];
   }
 }
 
 function getLogoQualityGuardrails(config: LabelConfig): readonly string[] {
-  switch (config.logoType) {
-    case "SYMBOL_ONLY":
-      return [
-        "Keep the symbol shape precise and fully woven with no invented supporting text.",
-      ];
-    case "TEXT_ONLY":
-      return [
-        "Every letter must remain readable as woven thread structure, not as printed typography.",
-      ];
-    case "SYMBOL_AND_TEXT":
-      return [
-        "Keep the symbol and text relationship intact with woven hierarchy, spacing, and alignment preserved.",
-      ];
-    case "AUTO":
-      return [
-        "Preserve the supplied logo structure exactly, whether it contains a symbol, text, or both.",
-      ];
-  }
+  const baseLines = (() => {
+    switch (config.logoType) {
+      case "SYMBOL_ONLY":
+        return [
+          "Keep the symbol shape precise and fully woven with no invented supporting text.",
+        ];
+      case "TEXT_ONLY":
+        return [
+          "Every letter must remain readable as woven thread structure, not as printed typography.",
+        ];
+      case "SYMBOL_AND_TEXT":
+        return [
+          "Keep the symbol and text relationship intact with woven hierarchy, spacing, and alignment preserved.",
+        ];
+      case "AUTO":
+        return [
+          "Preserve the supplied logo structure exactly, whether it contains a symbol, text, or both.",
+        ];
+    }
+  })();
+
+  const materialSpecificLines =
+    config.material === "HD"
+      ? [
+          "Keep the HD logo visibly thread-built, with internal yarn grain preserved even in dark areas and no smooth uniform black fill.",
+        ]
+      : config.material === "COTTON"
+        ? [
+            "Keep the cotton logo visibly thread-built, with internal yarn grain preserved even in dark areas and no flat filled shape with texture on top.",
+          ]
+        : [];
+
+  return [...baseLines, ...materialSpecificLines];
 }
 
 function getOutlineArtifactGuardrails(config: LabelConfig): readonly string[] {
@@ -768,18 +1286,23 @@ function getMaterialValidationChecks(config: LabelConfig): readonly string[] {
       return [
         "- The cotton label shows a high-density fine micro-weave with very tight thread spacing and realistic thread interlacing.",
         "- The design is formed by woven cotton threads inside the same fabric structure, not printed on top.",
+        "- The cotton logo remains built from visible thread structure with a subtle directional weave shift versus the background, not a flat filled shape.",
+        "- Text, when present, shows real woven lettering behavior with visible thread-built strokes instead of smooth solid black print-like bars.",
         "- The cotton thread scale stays micro-level, tightly packed, and industrially precise, with no enlarged yarns or open-grid appearance.",
         "- Subtle micro-shadows and controlled label depth are visible between threads.",
         "- The surface is smooth yet micro-textured, flat, clean, and refined, not smooth plastic or embroidery-like.",
+        "- The thin cotton selvedge/lisiere stays intact at the top and bottom edges.",
         "- Edges are clean cut with no visible side stitches, sewing threads, or stitched borders.",
         "- There is no thick dark contour, no border stroke, and no embroidery-like outline around the logo.",
       ];
     case "TAFFETA":
       return [
-        "- The taffeta grain is fine, tight, and small-scale with a visible woven grid.",
-        "- The design is woven into the same taffeta structure, not printed or overlaid.",
-        "- The weave cells remain compact and realistic with no oversized or exaggerated checker pattern.",
-        "- The label still shows depth and thread definition even with the tighter taffeta finish.",
+        "- The taffeta weave is very fine, dense, compact, and regular with tight small-scale weave cells clearly finer than cotton — no oversized weave cells, no exaggerated checker pattern, and no heavy grain.",
+        "- The taffeta surface is flat, thin, and clean — it reads as a manufactured industrial label tape, not as a thick fabric swatch, canvas patch, or soft natural cloth.",
+        "- The design is flat woven into the same taffeta structure — not embroidered, not raised, not outlined with thick stitching, and not printed or overlaid.",
+        "- The logo has no embroidery lift, no raised border, no stitched halo, and no separate outline ring — it is fully flat and integrated into the taffeta grid.",
+        "- No cotton softness, no canvas texture, no open natural-fiber texture, no porous surface, and no organic yarn presence is visible.",
+        "- The label edge is clean and thin — no thick padded selvedge, no rounded padded label body, and no thick fabric strip appearance.",
         "- There is no thick dark contour, no border stroke, and no embroidery-like outline around the logo.",
       ];
     case "SATIN":
@@ -792,6 +1315,7 @@ function getMaterialValidationChecks(config: LabelConfig): readonly string[] {
       return [
         "- The weave is crisp, compact, and high-definition with clean woven contours.",
         "- The logo is integrated into the textile grid rather than printed or overlaid.",
+        "- The HD logo remains built from visible thread structure with a subtle directional weave shift versus the background, not a flat filled shape.",
         "- Thread detail stays sharp and dense with no embroidery lift.",
         "- There is no thick dark contour, no border stroke, and no embroidery-like outline around the logo.",
       ];
@@ -807,10 +1331,13 @@ function getLogoTypeValidationChecks(config: LabelConfig): readonly string[] {
     case "TEXT_ONLY":
       return [
         "- Woven text remains legible and each character is formed by threads rather than smooth printed strokes.",
+        "- Text strokes show visible woven structure and slight thread-level variation instead of solid smooth black fill.",
+        "- Letter edges look textile-real and slightly stepped at macro scale, not vector-smooth or ink-flat.",
       ];
     case "SYMBOL_AND_TEXT":
       return [
         "- Both the symbol and the text are visible and both are woven into the same textile grid.",
+        "- Text characters show visible woven structure and slight thread-level variation instead of solid smooth black fill.",
       ];
     case "AUTO":
       return [
@@ -826,7 +1353,7 @@ function buildWovenValidationPrompt(config: LabelConfig): string {
     "You are validating whether a generated woven clothing label looks like real textile manufacturing.",
     "Decide if the design is physically woven into the fabric instead of printed on top.",
     "PASS only if every required condition is clearly visible.",
-    "FAIL if the image looks printed, flat, plastic, digitally rendered, over-sharpened, logo-overlaid, embroidered, outlined with a thick contour, or made with oversized open weave threads.",
+    "FAIL if the image looks printed, flat, plastic, digitally rendered, over-sharpened, logo-overlaid, embroidered, outlined with a thick contour, made with oversized open weave threads, or if text/logo strokes read as smooth solid black vector fill instead of woven thread structure.",
     "",
     "PASS CHECKLIST:",
     `- ${sizeProfile.validationDirective}`,
@@ -899,6 +1426,15 @@ function buildRetryFeedback(
   return [
     "The previous attempt did not meet the premium industrial woven-label standard.",
     `Regenerate from scratch for a ${sizeProfile.displayName} label with stronger high-density micro-weave behavior: the label must look like a premium fashion woven clothing label, the fabric and logo must be generated together, the design must be formed by woven threads inside the same textile grid, and the result must avoid any overlay, ink, open-grid, or embroidery appearance.`,
+    ...(config.material === "HD"
+      ? [
+          "Rebuild the HD logo as a visible thread-built layer with internal yarn grain and a subtle directional weave shift versus the background, not a smooth filled patch.",
+        ]
+      : config.material === "COTTON"
+        ? [
+            "Rebuild the cotton logo as a visible thread-built layer with internal yarn grain and a subtle directional weave shift versus the background, while keeping the thin cotton selvedge/lisiere at the top and bottom edges.",
+          ]
+        : []),
     ...outlineReminder,
     ...getLogoTypePromptHints(config.logoType),
   ].join(" ");
@@ -959,6 +1495,407 @@ async function validateWovenLabelOutput(
   }
 }
 
+function buildHdCottonMotifRetryFeedback(
+  config: LabelConfig,
+  _validationReason: string
+): string {
+  return joinPromptLines([
+    "Keep the supplied Stage A base locked exactly and rebuild only the woven motif behavior.",
+    "Strengthen motif-vs-ground separation through tighter denser motif thread packing and visible internal woven thread logic inside the dark shapes.",
+    "Keep the motif clearly woven and dark, but do not let it collapse into a flat fill, printed look, outline effect, or the same weave expression as the background.",
+    ...getLogoTypePromptHints(config.logoType),
+  ]);
+}
+
+async function executeGenerationRequest(
+  context: GenerationExecutionContext,
+  parts: GeminiPart[],
+  attempt: number,
+  stage: "single-pass" | "hd-cotton-base" | "hd-cotton-motif"
+): Promise<string> {
+  const response = await generateWithRetry(
+    () =>
+      context.ai.models.generateContent({
+        model: context.modelId,
+        contents: {
+          parts,
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1",
+            imageSize: context.mode === "final" ? "2K" : "1K",
+          },
+        },
+      }),
+    {
+      attempt,
+      material: context.labelConfig.material,
+      labelCode: context.labelCode,
+      modelId: context.modelId,
+      seed: context.seed,
+    }
+  );
+
+  const imageBase64 = extractGeneratedImage(response as GeminiResponseLike);
+  if (!imageBase64) {
+    throw new Error(`No image data found in ${stage} response.`);
+  }
+
+  return imageBase64;
+}
+
+function createReferenceImageParts(
+  referenceImages: readonly GeminiInlineImage[]
+): GeminiPart[] {
+  if (referenceImages.length === 0) {
+    return [];
+  }
+
+  return [
+    { text: "REFERENCE MATERIAL IMAGES:" },
+    ...referenceImages.map(referenceImage => ({
+      inlineData: referenceImage,
+    })),
+  ];
+}
+
+async function runSinglePassGeneration(
+  context: GenerationExecutionContext,
+  options: {
+    logoMimeType: GeminiInlineImage["mimeType"];
+    normalizedLogoBase64: string;
+  }
+): Promise<GenerationStageResult> {
+  let retryFeedback: string | undefined;
+  let lastImageBase64 = "";
+  let lastValidationReason = "Validation was not run.";
+  let validationPassed = false;
+
+  for (
+    let attempt = 1;
+    attempt <= MAX_WOVEN_GENERATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    const promptText = buildApiPrompt(context.labelConfig, {
+      hasReferenceImages: context.referenceImages.length > 0,
+      seed: context.seed,
+      retryFeedback,
+    });
+
+    console.log("FINAL PROMPT:", promptText);
+    console.log("PARAMS:", {
+      material: context.labelConfig.material,
+      backgroundColor: context.labelConfig.backgroundColor,
+      logoColor: context.labelConfig.logoColor,
+      size: context.labelConfig.size,
+      logoType: context.labelConfig.logoType,
+      labelCode: context.labelCode,
+      seed: context.seed,
+      attempt,
+      stage: "single-pass",
+    });
+
+    const imageBase64 = await executeGenerationRequest(
+      context,
+      [
+        { text: promptText },
+        {
+          inlineData: {
+            mimeType: options.logoMimeType,
+            data: options.normalizedLogoBase64,
+          },
+        },
+        ...createReferenceImageParts(context.referenceImages),
+      ],
+      attempt,
+      "single-pass"
+    );
+
+    lastImageBase64 = imageBase64;
+
+    const validationResult = await validateWovenLabelOutput(
+      context.ai,
+      context.modelId,
+      context.labelConfig,
+      imageBase64
+    );
+
+    validationPassed = validationResult.passed;
+    lastValidationReason = validationResult.reason;
+
+    if (
+      validationResult.passed ||
+      attempt === MAX_WOVEN_GENERATION_ATTEMPTS
+    ) {
+      return {
+        imageBase64,
+        validationPassed,
+        validationReason: lastValidationReason,
+        attemptsUsed: attempt,
+      };
+    }
+
+    retryFeedback = buildRetryFeedback(
+      context.labelConfig,
+      validationResult.reason
+    );
+
+    console.warn(
+      "[NanoBanana] Regenerating after woven-textile validation failure",
+      {
+        mode: context.mode,
+        modelId: context.modelId,
+        textureType: context.labelConfig.textureTypeLegacy,
+        material: context.labelConfig.material,
+        labelCode: context.labelCode,
+        seed: context.seed,
+        attempt,
+        stage: "single-pass",
+        validationReason: validationResult.reason,
+      }
+    );
+  }
+
+  return {
+    imageBase64: lastImageBase64,
+    validationPassed,
+    validationReason: lastValidationReason,
+    attemptsUsed: MAX_WOVEN_GENERATION_ATTEMPTS,
+  };
+}
+
+async function generateHdCottonBase(
+  context: GenerationExecutionContext
+): Promise<string> {
+  const promptText = buildHdCottonBasePrompt(context.labelConfig, {
+    hasReferenceImages: context.referenceImages.length > 0,
+    seed: context.seed,
+  });
+
+  console.log("FINAL PROMPT:", promptText);
+  console.log("PARAMS:", {
+    material: context.labelConfig.material,
+    backgroundColor: context.labelConfig.backgroundColor,
+    logoColor: context.labelConfig.logoColor,
+    size: context.labelConfig.size,
+    logoType: context.labelConfig.logoType,
+    labelCode: context.labelCode,
+    seed: context.seed,
+    attempt: 1,
+    stage: "hd-cotton-base",
+  });
+
+  return executeGenerationRequest(
+    context,
+    [{ text: promptText }, ...createReferenceImageParts(context.referenceImages)],
+    1,
+    "hd-cotton-base"
+  );
+}
+
+async function generateHdCottonMotifRefinement(
+  context: GenerationExecutionContext,
+  options: {
+    baseImageBase64: string;
+    logoMimeType: GeminiInlineImage["mimeType"];
+    normalizedLogoBase64: string;
+  }
+): Promise<GenerationStageResult> {
+  let retryFeedback: string | undefined;
+  let lastImageBase64 = "";
+  let lastValidationReason = "Validation was not run.";
+  let validationPassed = false;
+
+  for (
+    let attempt = 1;
+    attempt <= MAX_WOVEN_GENERATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    const promptText = buildHdCottonMotifRefinementPrompt(context.labelConfig, {
+      hasReferenceImages: context.referenceImages.length > 0,
+      seed: context.seed,
+      retryFeedback,
+    });
+
+    console.log("FINAL PROMPT:", promptText);
+    console.log("PARAMS:", {
+      material: context.labelConfig.material,
+      backgroundColor: context.labelConfig.backgroundColor,
+      logoColor: context.labelConfig.logoColor,
+      size: context.labelConfig.size,
+      logoType: context.labelConfig.logoType,
+      labelCode: context.labelCode,
+      seed: context.seed,
+      attempt,
+      stage: "hd-cotton-motif",
+    });
+
+    const imageBase64 = await executeGenerationRequest(
+      context,
+      [
+        { text: promptText },
+        { text: "LOCKED STAGE A BASE IMAGE:" },
+        {
+          inlineData: {
+            mimeType: "image/png",
+            data: options.baseImageBase64,
+          },
+        },
+        { text: "SUPPLIED LOGO ARTWORK:" },
+        {
+          inlineData: {
+            mimeType: options.logoMimeType,
+            data: options.normalizedLogoBase64,
+          },
+        },
+        ...createReferenceImageParts(context.referenceImages),
+      ],
+      attempt,
+      "hd-cotton-motif"
+    );
+
+    lastImageBase64 = imageBase64;
+
+    const validationResult = await validateWovenLabelOutput(
+      context.ai,
+      context.modelId,
+      context.labelConfig,
+      imageBase64
+    );
+
+    validationPassed = validationResult.passed;
+    lastValidationReason = validationResult.reason;
+
+    if (
+      validationResult.passed ||
+      attempt === MAX_WOVEN_GENERATION_ATTEMPTS
+    ) {
+      return {
+        imageBase64,
+        validationPassed,
+        validationReason: lastValidationReason,
+        attemptsUsed: attempt,
+      };
+    }
+
+    retryFeedback = buildHdCottonMotifRetryFeedback(
+      context.labelConfig,
+      validationResult.reason
+    );
+
+    console.warn(
+      "[NanoBanana] Regenerating HD Cotton motif refinement after validation failure",
+      {
+        mode: context.mode,
+        modelId: context.modelId,
+        textureType: context.labelConfig.textureTypeLegacy,
+        material: context.labelConfig.material,
+        labelCode: context.labelCode,
+        seed: context.seed,
+        attempt,
+        stage: "hd-cotton-motif",
+        validationReason: validationResult.reason,
+      }
+    );
+  }
+
+  return {
+    imageBase64: lastImageBase64,
+    validationPassed,
+    validationReason: lastValidationReason,
+    attemptsUsed: MAX_WOVEN_GENERATION_ATTEMPTS,
+  };
+}
+
+async function runHdCottonTwoStageGeneration(
+  context: GenerationExecutionContext,
+  options: {
+    logoMimeType: GeminiInlineImage["mimeType"];
+    normalizedLogoBase64: string;
+  }
+): Promise<GenerationStageResult> {
+  const baseImageBase64 = await generateHdCottonBase(context);
+
+  try {
+    const motifResult = await generateHdCottonMotifRefinement(context, {
+      baseImageBase64,
+      logoMimeType: options.logoMimeType,
+      normalizedLogoBase64: options.normalizedLogoBase64,
+    });
+
+    if (motifResult.validationPassed) {
+      return motifResult;
+    }
+
+    console.warn(
+      "[NanoBanana] HD Cotton motif refinement remained below validation target, trying single-pass fallback",
+      {
+        mode: context.mode,
+        modelId: context.modelId,
+        textureType: context.labelConfig.textureTypeLegacy,
+        material: context.labelConfig.material,
+        labelCode: context.labelCode,
+        seed: context.seed,
+        validationReason: motifResult.validationReason,
+      }
+    );
+
+    try {
+      const fallbackResult = await runSinglePassGeneration(context, options);
+      return fallbackResult.validationPassed ? fallbackResult : motifResult;
+    } catch (fallbackError: unknown) {
+      console.warn("[NanoBanana] HD Cotton single-pass fallback failed", {
+        mode: context.mode,
+        modelId: context.modelId,
+        textureType: context.labelConfig.textureTypeLegacy,
+        material: context.labelConfig.material,
+        labelCode: context.labelCode,
+        seed: context.seed,
+        errorMessage: getErrorMessage(fallbackError),
+      });
+      return motifResult;
+    }
+  } catch (error: unknown) {
+    console.warn(
+      "[NanoBanana] HD Cotton motif refinement failed, trying single-pass fallback",
+      {
+        mode: context.mode,
+        modelId: context.modelId,
+        textureType: context.labelConfig.textureTypeLegacy,
+        material: context.labelConfig.material,
+        labelCode: context.labelCode,
+        seed: context.seed,
+        errorMessage: getErrorMessage(error),
+      }
+    );
+
+    try {
+      return await runSinglePassGeneration(context, options);
+    } catch (fallbackError: unknown) {
+      console.warn(
+        "[NanoBanana] HD Cotton single-pass fallback failed, returning Stage A base",
+        {
+          mode: context.mode,
+          modelId: context.modelId,
+          textureType: context.labelConfig.textureTypeLegacy,
+          material: context.labelConfig.material,
+          labelCode: context.labelCode,
+          seed: context.seed,
+          errorMessage: getErrorMessage(fallbackError),
+        }
+      );
+
+      return {
+        imageBase64: baseImageBase64,
+        validationPassed: false,
+        validationReason:
+          "HD Cotton motif refinement and fallback failed. Returning locked Stage A base.",
+        attemptsUsed: 1,
+      };
+    }
+  }
+}
+
 export function buildPrompt(
   config: LabelConfig,
   options: {
@@ -970,9 +1907,18 @@ export function buildPrompt(
 ): string {
   const materialPreset = TEXTURE_PRESETS_BY_MATERIAL[config.material];
   const texturePreset = getTexturePreset(config.textureTypeLegacy);
+  const textureControlPreset = getTextureControlPreset(config.material);
   const generationConfig =
     options.generationConfig ?? buildFallbackGenerationConfig(config);
   const seed = options.seed ?? generateSeed(generationConfig);
+  const textureBaselinePrompt = buildTextureFreezePrompt(textureControlPreset);
+  const strictTextureControlPrompt =
+    buildStrictTextureControlPrompt(textureControlPreset);
+  const logoIntegrationPriorityPrompt =
+    buildLogoIntegrationPriorityPrompt(config);
+  const scopedModificationRulesPrompt =
+    buildScopedModificationRulesPrompt(config);
+  const materialSpecificLogoPrompt = buildMaterialSpecificLogoPrompt(config);
 
   // Keep the prompt layered: shared label-domain instructions stay in the
   // label module, while service-level guardrails let us tighten generation
@@ -983,6 +1929,23 @@ export function buildPrompt(
       retryFeedback: options.retryFeedback,
     }),
     "",
+    textureBaselinePrompt,
+    "",
+    strictTextureControlPrompt,
+    "",
+    ...(logoIntegrationPriorityPrompt
+      ? [logoIntegrationPriorityPrompt, ""]
+      : []),
+    ...(scopedModificationRulesPrompt
+      ? [scopedModificationRulesPrompt, ""]
+      : []),
+    ...(materialSpecificLogoPrompt.length > 0
+      ? [
+          "BROCHE LOGO LAYER:",
+          ...materialSpecificLogoPrompt.map(line => `- ${line}`),
+          "",
+        ]
+      : []),
     buildQualityGuardrailsPrompt(config),
     "",
     buildTextureParameterPrompt(texturePreset),
@@ -1040,134 +2003,28 @@ export async function generateLabel(
 
     const ai = new GoogleGenAI({ apiKey });
     const logoMimeType = resolveLogoMimeType(input.logoMimeType);
-
-    let lastImageBase64: string | undefined;
-    let retryFeedback: string | undefined;
-
-    for (
-      let attempt = 1;
-      attempt <= MAX_WOVEN_GENERATION_ATTEMPTS;
-      attempt += 1
-    ) {
-      const promptText = buildApiPrompt(labelConfig, {
-        hasReferenceImages: referenceImages.length > 0,
-        seed,
-        retryFeedback,
-      });
-
-      console.log("FINAL PROMPT:", promptText);
-      console.log("PARAMS:", {
-        material: labelConfig.material,
-        backgroundColor: labelConfig.backgroundColor,
-        logoColor: labelConfig.logoColor,
-        size: labelConfig.size,
-        logoType: labelConfig.logoType,
-        labelCode,
-        seed,
-        attempt,
-      });
-
-      const parts: GeminiPart[] = [
-        { text: promptText },
-        {
-          inlineData: {
-            mimeType: logoMimeType,
-            data: normalizedLogoBase64,
-          },
-        },
-      ];
-
-      if (referenceImages.length > 0) {
-        parts.push({ text: "REFERENCE MATERIAL IMAGES:" });
-        for (const referenceImage of referenceImages) {
-          parts.push({
-            inlineData: referenceImage,
-          });
-        }
-      }
-
-      const response = await generateWithRetry(
-        () =>
-          ai.models.generateContent({
-            model: modelId,
-            contents: {
-              parts,
-            },
-            config: {
-              imageConfig: {
-                aspectRatio: "1:1",
-                imageSize: input.mode === "final" ? "2K" : "1K",
-              },
-            },
-          }),
-        {
-          attempt,
-          material: labelConfig.material,
-          labelCode,
-          modelId,
-          seed,
-        }
-      );
-
-      const imageBase64 = extractGeneratedImage(response as GeminiResponseLike);
-      if (!imageBase64) {
-        throw new Error("No image data found in response.");
-      }
-
-      lastImageBase64 = imageBase64;
-
-      const validationResult = await validateWovenLabelOutput(
-        ai,
-        modelId,
-        labelConfig,
-        imageBase64
-      );
-
-      if (
-        validationResult.passed ||
-        attempt === MAX_WOVEN_GENERATION_ATTEMPTS
-      ) {
-        if (!validationResult.passed) {
-          console.warn(
-            "[NanoBanana] Returning final attempt despite validation warning",
-            {
-              mode: input.mode,
-              modelId,
-              textureType: labelConfig.textureTypeLegacy,
-              material: labelConfig.material,
-              labelCode,
-              seed,
-              attempt,
-              validationReason: validationResult.reason,
-            }
-          );
-        }
-
-        console.log("[NanoBanana] Generation success", {
-          mode: input.mode,
-          modelId,
-          textureType: labelConfig.textureTypeLegacy,
-          material: labelConfig.material,
-          labelCode,
-          seed,
-          attempt,
-          imageBytes: imageBase64.length,
-          validationReason: validationResult.reason,
+    const generationContext: GenerationExecutionContext = {
+      ai,
+      modelId,
+      mode: input.mode,
+      labelConfig,
+      labelCode,
+      seed,
+      referenceImages,
+    };
+    const generationResult = isHdCotton(labelConfig.textureTypeLegacy)
+      ? await runHdCottonTwoStageGeneration(generationContext, {
+          logoMimeType,
+          normalizedLogoBase64,
+        })
+      : await runSinglePassGeneration(generationContext, {
+          logoMimeType,
+          normalizedLogoBase64,
         });
 
-        return {
-          success: true,
-          imageBase64,
-          labelConfig,
-          labelCode,
-          seed,
-        };
-      }
-
-      retryFeedback = buildRetryFeedback(labelConfig, validationResult.reason);
-
+    if (!generationResult.validationPassed) {
       console.warn(
-        "[NanoBanana] Regenerating after woven-textile validation failure",
+        "[NanoBanana] Returning best available generation despite validation warning",
         {
           mode: input.mode,
           modelId,
@@ -1175,23 +2032,34 @@ export async function generateLabel(
           material: labelConfig.material,
           labelCode,
           seed,
-          attempt,
-          validationReason: validationResult.reason,
+          attemptsUsed: generationResult.attemptsUsed,
+          validationReason: generationResult.validationReason,
         }
       );
     }
 
-    if (lastImageBase64) {
-      return {
-        success: true,
-        imageBase64: lastImageBase64,
-        labelConfig,
-        labelCode,
-        seed,
-      };
-    }
+    console.log("[NanoBanana] Generation success", {
+      mode: input.mode,
+      modelId,
+      textureType: labelConfig.textureTypeLegacy,
+      material: labelConfig.material,
+      labelCode,
+      seed,
+      attemptsUsed: generationResult.attemptsUsed,
+      imageBytes: generationResult.imageBase64.length,
+      validationReason: generationResult.validationReason,
+      pipeline: isHdCotton(labelConfig.textureTypeLegacy)
+        ? "hd-cotton-two-stage"
+        : "single-pass",
+    });
 
-    throw new Error("No image data found in response.");
+    return {
+      success: true,
+      imageBase64: generationResult.imageBase64,
+      labelConfig,
+      labelCode,
+      seed,
+    };
   } catch (error: unknown) {
     const errorMessage = getErrorMessage(error);
     const errorStatus = getErrorStatus(error);
