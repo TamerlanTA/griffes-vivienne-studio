@@ -11,7 +11,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "labels:batch": "tsx scripts/generateWovenLabelBatch.ts",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "color:validate": "tsx scripts/colorValidationBatch.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
