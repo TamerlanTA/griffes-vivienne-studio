@@ -107,12 +107,14 @@ const BACKGROUND_COLOR_DESCRIPTIONS: Record<LabelColor, string> = {
     "clean light cotton label, soft neutral off-white, slightly warm, not yellow, not brown",
   LIGHT_BEIGE: "very light beige cotton, close to off-white",
   DARK_CHARCOAL: "deep dark charcoal fabric",
+  NAVY: "deep navy blue woven ground",
 };
 
 const LOGO_COLOR_DESCRIPTIONS: Record<LabelLogoColor, string> = {
   BLACK: "deep black woven threads",
   DARK_BLUE: "dark navy blue woven threads",
   WHITE: "white woven threads clearly visible",
+  GOLD: "warm golden woven threads — a rich amber-gold thread tone as used in luxury woven labels, not metallic foil and not printed yellow",
 };
 
 const LOGO_TYPE_DESCRIPTIONS: Record<LabelLogoType, string> = {
@@ -143,7 +145,7 @@ const LOGO_TYPE_PROMPT_HINTS: Record<LabelLogoType, readonly string[]> = {
   ],
 };
 
-const DARK_BACKGROUND_COLORS = new Set<LabelColor>(["BLACK", "DARK_CHARCOAL"]);
+const DARK_BACKGROUND_COLORS = new Set<LabelColor>(["BLACK", "DARK_CHARCOAL", "NAVY"]);
 
 export const backgroundColorMap: Record<LabelColor, string> =
   BACKGROUND_COLOR_DESCRIPTIONS;

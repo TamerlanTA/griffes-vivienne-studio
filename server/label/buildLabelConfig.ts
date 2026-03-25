@@ -51,6 +51,7 @@ const COLOR_ALIASES: Record<string, LabelColor> = {
   DARK: "DARK_CHARCOAL",
   DARK_CHARCOAL: "DARK_CHARCOAL",
   GOLD: "GOLD",
+  NAVY: "NAVY",
 };
 
 const LOGO_COLOR_ALIASES: Record<string, LabelLogoColor> = {
@@ -60,6 +61,7 @@ const LOGO_COLOR_ALIASES: Record<string, LabelLogoColor> = {
   NAVY: "DARK_BLUE",
   DARKBLUE: "DARK_BLUE",
   DARK_BLUE: "DARK_BLUE",
+  GOLD: "GOLD",
 };
 
 const LOGO_TYPE_ALIASES: Record<string, LabelLogoType> = {

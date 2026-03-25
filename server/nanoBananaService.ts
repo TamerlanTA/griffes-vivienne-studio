@@ -18,6 +18,7 @@ import {
   describeLogoType,
   getLabelSizeProfile,
   getLogoTypePromptHints,
+  isDarkBackgroundColor,
   mapLegacyTextureType,
   logoColorMap,
   safeColor,
@@ -580,7 +581,9 @@ function getApiMaterialPromptLines(config: LabelConfig): readonly string[] {
         "The taffeta surface must show a fine regular small-cell grid pattern — tight compact weave cells that are clearly smaller and finer than cotton.",
         "Keep the material flat, clean, thin, and industrially precise: tighter than cotton, no soft organic yarn presence, no heavy grain, no canvas texture, no open natural-fiber texture.",
         "The label must read as a manufactured precision label tape, not as a thick fabric swatch, patch, or natural cloth sample.",
-        "Keep a slightly warm neutral beige / light ivory tone with restrained natural woven variation and no sterile artificial uniformity.",
+        isDarkBackgroundColor(config.backgroundColor)
+          ? `The label fabric is ${getSafeBackgroundColorPrompt(config)} — dark, flat, dense, industrially precise taffeta weave with visible micro-texture and no sterile flat fill.`
+          : "Keep a slightly warm neutral beige / light ivory tone with restrained natural woven variation and no sterile artificial uniformity.",
         "The logo must be flat woven into the same fine taffeta structure — never embroidered, never raised, never outlined with thick stitching.",
       ];
   }
@@ -601,7 +604,7 @@ function buildCompactTextureDifferentiationPrompt(
 
 function buildColorControlPrompt(config: LabelConfig): string {
   const backgroundColor =
-    config.material === "TAFFETA"
+    config.material === "TAFFETA" && !isDarkBackgroundColor(config.backgroundColor)
       ? "slightly warm neutral beige / light ivory woven taffeta tone with subtle natural variation"
       : getSafeBackgroundColorPrompt(config);
   const logoColor = getSafeLogoColorPrompt(config);
@@ -1059,6 +1062,68 @@ export function normalizeLogoBase64(logoBase64: string): string {
   return normalized;
 }
 
+
+function buildHdDarkVariantPrompt(
+  config: LabelConfig,
+  options: {
+    hasReferenceImages: boolean;
+    seed: number;
+    retryFeedback?: string;
+  }
+): string {
+  const retryFeedback = options.retryFeedback?.trim();
+  const labelFabricColor = getSafeBackgroundColorPrompt(config);
+  const motifColor = getSafeLogoColorPrompt(config);
+  const primaryLogoHint = getLogoTypePromptHints(config.logoType)[0];
+
+  const positivePrompt = joinPromptLines([
+    "HD DARK VARIANT:",
+    retryFeedback ? `Retry correction: ${retryFeedback}` : undefined,
+    "COMPOSITION:",
+    "- One standalone woven HD label, centered, fully visible on polished white onyx / light marble support surface.",
+    "- Slight top-down camera 15 to 25 degrees, soft neutral studio lighting, clean product composition.",
+    "- Preserve label proportions and shape.",
+    "LABEL FABRIC:",
+    `- The HD label fabric is ${labelFabricColor}.`,
+    "- Dense high-definition damask weave with compact thread spacing, precise micro-weave control, and crisp industrial thread definition.",
+    "- The label must read as a flat fine refined woven fabric — not a printed surface, not a dyed solid, and not a coated substrate.",
+    "- The dark woven threads must show subtle natural variation and woven micro-texture, never a flat uniform fill.",
+    "- The label must be clearly distinct from the lighter marble support surface behind it.",
+    "WOVEN MOTIF:",
+    `- The motif and text are formed by ${motifColor}.`,
+    "- The logo and text must be built from visible woven thread structure as a distinct motif layer — not printed, not painted, and not a flat solid fill.",
+    "- Use a subtle directional weave shift inside the logo versus the background so the mark reads as a jacquard-selected woven motif rather than a bright overlay or flat patch.",
+    "- Internal thread logic must remain visible inside the light-colored motif shapes so they do not read as flat printed fills.",
+    "- Keep the motif edges crisp and well-defined through tight woven thread behavior, not graphic smoothness.",
+    "- Motif threads must integrate into the same dark woven label surface — no halo, no border ring, no embroidery outline, no raised stitching.",
+    `- Logo structure: ${describeLogoType(config.logoType)}.`,
+    primaryLogoHint,
+    "KEEP DISALLOWED:",
+    "- No printed graphics, no flat ink application, no digital overlay, no logo stamped on top of dark fabric.",
+    "- No embroidery, no raised stitching, no patch effect, no applique, no halo ring around the logo.",
+    "- No flat solid dark fill for the background — woven thread texture must be visible.",
+    "- No flat solid light fill for the logo — thread structure must be visible inside the light motif shapes.",
+    "- No satin sheen, no plastic gloss, no synthetic coating.",
+    options.hasReferenceImages
+      ? "Reference images guide micro-weave, jacquard behavior, and lighting only — do not copy background, props, or staging."
+      : undefined,
+  ]);
+
+  const sanitizedPositivePrompt = sanitizePrompt(positivePrompt);
+  assertValidGenerationPrompt(sanitizedPositivePrompt);
+
+  const finalPrompt = sanitizePrompt(
+    [
+      sanitizedPositivePrompt,
+      `Negative prompt: ${API_NEGATIVE_PROMPT}, ${HD_MOTIF_NEGATIVE_PROMPT}.`,
+      `Seed ${options.seed}.`,
+    ].join(" ")
+  );
+
+  assertValidPrompt(finalPrompt);
+  return finalPrompt;
+}
+
 export function buildApiPrompt(
   config: LabelConfig,
   options: {
@@ -1097,7 +1162,9 @@ export function buildApiPrompt(
   }
 
   if (config.material === "HD") {
-    return buildHdMotifRefinementPrompt(config, options);
+    return isDarkBackgroundColor(config.backgroundColor)
+      ? buildHdDarkVariantPrompt(config, options)
+      : buildHdMotifRefinementPrompt(config, options);
   }
 
   const positivePrompt = [

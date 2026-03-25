@@ -6,11 +6,12 @@ export type LabelColor =
   | "CREAM"
   | "BEIGE"
   | "GOLD"
+  | "NAVY"
   | "OFF_WHITE"
   | "LIGHT_BEIGE"
   | "DARK_CHARCOAL";
 
-export type LabelLogoColor = "BLACK" | "DARK_BLUE" | "WHITE";
+export type LabelLogoColor = "BLACK" | "DARK_BLUE" | "WHITE" | "GOLD";
 
 export type LabelLogoType =
   | "AUTO"

@@ -16,12 +16,13 @@ export const LABEL_COLORS = [
   "CREAM",
   "BEIGE",
   "GOLD",
+  "NAVY",
   "OFF_WHITE",
   "LIGHT_BEIGE",
   "DARK_CHARCOAL",
 ] as const;
 
-export const LABEL_LOGO_COLORS = ["BLACK", "DARK_BLUE", "WHITE"] as const;
+export const LABEL_LOGO_COLORS = ["BLACK", "DARK_BLUE", "WHITE", "GOLD"] as const;
 
 export const LABEL_LOGO_TYPES = [
   "AUTO",
